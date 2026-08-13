@@ -1,0 +1,6 @@
+/target
+/logs
+**/dist/
+/cache
+/data
+Task.md
