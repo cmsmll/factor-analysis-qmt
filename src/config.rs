@@ -174,41 +174,45 @@ fn default_periods() -> Vec<Period> {
         Period::new("最近十年", 2016),
     ]
 }
-/// 数据库和原始 TBF 数据路径配置。
+/// 数据源路径配置（新 JSON 存储）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DataConfig {
     /// 缓存根目录。
     #[serde(default = "default_cache_dir")]
     pub cache: PathBuf,
-    /// 行情数据库目录。
+    /// 行情 JSON 目录（每只股票一个 `<code>.json` 数组文件）。
     pub market: PathBuf,
-    /// 财务数据库目录。
-    pub finance: PathBuf,
-    /// 元数据数据库文件。
+    /// 元数据 JSON 文件。
     pub metadata: PathBuf,
-    /// 原始行情 TBF 数据目录。
-    pub tbf_market: PathBuf,
-    /// 原始财务 TBF 数据目录。
-    pub tbf_finance: PathBuf,
-    /// 原始元数据 TBF 数据目录。
-    pub tbf_metadata: PathBuf,
+    /// 行业成分股 JSON 文件。
+    #[serde(default = "default_sector_json")]
+    pub sector_json: PathBuf,
+    /// 指数成分股 JSON 文件。
+    #[serde(default = "default_indice_json")]
+    pub indice_json: PathBuf,
 }
 
 fn default_cache_dir() -> PathBuf {
     PathBuf::from("cache")
 }
 
+fn default_sector_json() -> PathBuf {
+    PathBuf::from("data/行业成分股.json")
+}
+
+fn default_indice_json() -> PathBuf {
+    PathBuf::from("data/指数成分股.json")
+}
+
 impl Default for DataConfig {
     fn default() -> Self {
         Self {
             cache: default_cache_dir(),
-            market: PathBuf::from("data/database/market"),
-            finance: PathBuf::from("data/database/finance"),
-            metadata: PathBuf::from("data/database/metadata.db"),
-            tbf_market: PathBuf::from("data/tbf/market"),
-            tbf_finance: PathBuf::from("data/tbf/finance"),
-            tbf_metadata: PathBuf::from("data/tbf/metadata"),
+            market: PathBuf::from("data/market"),
+            metadata: PathBuf::from("data/metadata.json"),
+            sector_json: default_sector_json(),
+            indice_json: default_indice_json(),
         }
     }
 }
@@ -293,7 +297,7 @@ mod tests {
                 port = 9000
 
                 [data]
-                tbf_market = "custom/market"
+                market = "custom/market"
             "#,
         )
         .unwrap();
@@ -302,8 +306,8 @@ mod tests {
 
         assert_eq!(config.server.port, 9000);
         assert_eq!(config.server.addr, IpAddr::V4(Ipv4Addr::LOCALHOST));
-        assert_eq!(config.data.tbf_market, Path::new("custom/market"));
-        assert_eq!(config.data.finance, DataConfig::default().finance);
+        assert_eq!(config.data.market, Path::new("custom/market"));
+        assert_eq!(config.data.metadata, DataConfig::default().metadata);
         assert_eq!(config.period, default_periods());
     }
 

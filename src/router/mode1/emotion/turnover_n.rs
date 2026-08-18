@@ -107,7 +107,7 @@ fn turnover_n_run(args: Req) -> Box<RawValue> {
         for (item, store) in df.list.iter().zip(store.iter_mut()) {
             if let Some((curr, profit)) = item.data(&index)
                 && curr.filter_st(args.base.filter_st)
-                && let Some(factor) = store.next(curr.turnover)
+                && let Some(factor) = store.next(curr.amount)
             {
                 items.push(Mode1Temp { factor, profit });
             }

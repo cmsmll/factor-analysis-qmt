@@ -73,7 +73,7 @@ impl Default for Req {
 /// `POST /api/mode1/{factor_id}`
 ///
 /// 请求头必须包含 `Content-Type: application/json`。请求体使用 [`Req`]，其中 `base` 包含动态接口 ID、分位数量和筛选条件：
-/// 日期按 `YYYY-MM-DD` 解析；`filter_bz = true` 时排除北京证券交易所；
+/// 日期按 `YYYY-MM-DD` 解析；`filter_bz = true` 时排除北交所；
 /// `sector` 与 `indice` 非空时按并集筛选；`filter_st` 为 `true` 时排除当日处于 ST 状态的股票。
 ///
 /// # Analysis
@@ -129,7 +129,7 @@ fn turnover_rate_run(args: Req) -> Box<RawValue> {
                 && curr.filter_st(args.base.filter_st)
             {
                 items.push(Mode1Temp {
-                    factor: curr.turnover_rate,
+                    factor: curr.turnover,
                     profit,
                 });
             }
@@ -153,7 +153,7 @@ fn turnover_rate_details_run(args: Req) -> Box<RawValue> {
                 && curr.filter_st(args.base.filter_st)
             {
                 items.push(Mode1Detail {
-                    factor: curr.turnover_rate,
+                    factor: curr.turnover,
                     profit,
                     market: curr,
                 });

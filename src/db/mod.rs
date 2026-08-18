@@ -1,243 +1,256 @@
+pub mod bar_date;
 pub mod dataframe;
-pub mod finance;
-pub mod market;
 pub mod metadata;
-pub mod parse;
 
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    fs, io,
+    path::Path,
+    sync::Arc,
+};
 
+pub use bar_date::*;
 pub use dataframe::*;
-pub use finance::*;
-pub use market::*;
 pub use metadata::*;
-use rayon::prelude::*;
-
-use rusqlite::{Connection, OpenFlags, Result, params};
 use rustc_hash::FxHashMap;
-use time::{Date, format_description::well_known::Iso8601};
+use serde::Deserialize;
+use time::Date;
 
 use crate::config::Config;
 
-/// 行情数据及对应的前向收益。
-type MarketWithProfit = (Vec<MarketData>, Vec<[f64; 5]>);
-
+/// 内存数据仓库。
 pub struct DataFrameDb {
-    /// 行情数据库，与 metadata 使用相同顺序。
-    pub market: Vec<Connection>,
-    /// 财务数据库，与 metadata 使用相同顺序。
-    pub finance: Vec<Connection>,
-    /// 合约信息数据库。
-    pub metadata: Arc<Vec<Metadata>>,
+    /// 合约信息，与 bar 使用相同顺序。
+    pub metadata: Vec<Arc<Metadata>>,
+    /// 每只合约的逐日行情与财务数据，与 metadata 使用相同顺序。
+    pub bar: Vec<Arc<Vec<Bar>>>,
+    /// 全部行业分类列表。
+    pub sector: Arc<HashSet<String>>,
+    /// 全部指数分类列表。
+    pub indice: Arc<HashSet<String>>,
+}
+
+/// 新数据源单行：行情与财务字段合并于同一 JSON 行。
+#[derive(Debug, Deserialize)]
+struct MarketRow {
+    #[serde(with = "crate::toolbox::serde::date_format")]
+    datetime: Date,
+    #[serde(alias = "change_pct")]
+    change_percent: f64,
+    open: f64,
+    close: f64,
+    high: f64,
+    low: f64,
+    volume: f64,
+    amount: f64,
+    turnover: f64,
+    is_st: bool,
+    #[serde(default)]
+    total_market: f64,
+}
+
+impl MarketRow {
+    fn to_bar(&self) -> Bar {
+        Bar {
+            market: Market {
+                datetime: self.datetime,
+                change_percent: self.change_percent,
+                open: self.open,
+                close: self.close,
+                high: self.high,
+                low: self.low,
+                volume: self.volume,
+                amount: self.amount,
+                turnover: self.turnover,
+                is_st: self.is_st,
+            },
+            finance: Finance {
+                total_market: self.total_market,
+            },
+        }
+    }
 }
 
 impl DataFrameDb {
-    pub fn new<D, F, M>(market_path: D, finance_path: F, metadata_path: M) -> Result<Self>
-    where
-        D: AsRef<Path>,
-        F: AsRef<Path>,
-        M: AsRef<Path>,
-    {
-        let finance_path = finance_path.as_ref();
-        let market_path = market_path.as_ref();
-        let metadata_db = MetadataDb::open_read_only(metadata_path)?;
-        let metadata = Arc::new(metadata_db.query_all()?);
-
-        let market = open_contract_databases(&metadata, market_path)?;
-        let finance = open_contract_databases(&metadata, finance_path)?;
-
-        Ok(Self { market, finance, metadata })
-    }
-
-    /// 根据配置中的行情、财务和元数据路径打开数据库。
-    pub fn from_config(config: &Config) -> Result<Self> {
+    /// 从配置中的数据路径加载新 JSON 数据源。
+    pub fn from_config(config: &Config) -> io::Result<Self> {
         let data = &config.data;
-        Self::new(&data.market, &data.finance, &data.metadata)
+        let mut metadata = load_metadata(&data.metadata)?;
+
+        // 行业/指数成分股：group keys 收集全列表，并按代码反转回填 members。
+        let sector_groups = load_groups(&data.sector_json)?;
+        let indice_groups = load_groups(&data.indice_json)?;
+        let sector: Arc<HashSet<String>> = Arc::new(sector_groups.keys().cloned().collect());
+        let indice: Arc<HashSet<String>> = Arc::new(indice_groups.keys().cloned().collect());
+
+        // 代码(裸) -> 合并后的行业+指数分类集合。
+        let mut members_by_code: FxHashMap<&str, HashSet<String>> = FxHashMap::default();
+        for (group, codes) in sector_groups.iter().chain(indice_groups.iter()) {
+            for code in codes {
+                members_by_code.entry(normalize_code(code)).or_default().insert(group.clone());
+            }
+        }
+        for meta in &mut metadata {
+            if let Some(members) = members_by_code.get(meta.code.as_ref()) {
+                meta.members = members.clone();
+            }
+        }
+
+        // 代码 -> 元数据索引，代码已剥后缀。
+        let metadata_by_code = metadata
+            .iter()
+            .map(|meta| (meta.code.clone(), Arc::new(meta.clone())))
+            .collect::<FxHashMap<_, _>>();
+
+        // 遍历行情 JSON 目录，文件名 stem 为带后缀代码。
+        let mut contracts: Vec<Arc<Metadata>> = Vec::new();
+        let mut bar: Vec<Arc<Vec<Bar>>> = Vec::new();
+
+        let mut files = fs::read_dir(&data.market)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<io::Result<Vec<_>>>()?;
+        files.retain(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "json"));
+        files.sort();
+
+        for path in files {
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let Some(meta) = metadata_by_code.get(normalize_code(stem)) else {
+                eprintln!("跳过无元数据的行情文件: {}", path.display());
+                continue;
+            };
+            let rows = load_market_rows(&path)?;
+            if rows.is_empty() {
+                continue;
+            }
+            let bars = rows.iter().map(MarketRow::to_bar).collect::<Vec<_>>();
+            contracts.push(meta.clone());
+            bar.push(Arc::new(bars));
+        }
+
+        Ok(Self {
+            metadata: contracts,
+            bar,
+            sector,
+            indice,
+        })
     }
 
-    pub fn query(&self, start: Date, end: Date) -> Result<DataFrame> {
-        let start = start.to_string();
-        let end = end.saturating_add(time::Duration::days(1)).to_string();
-        self.build(Some((&start, &end)))
-    }
-
-    /// 查询全部行情，并为每条行情关联不晚于自身时间的最近一期财务数据。
-    pub fn query_all(&self) -> Result<DataFrame> {
+    /// 查询全部行情，并为每条行情关联同期的财务数据。
+    pub fn query_all(&self) -> io::Result<DataFrame> {
         self.build(None)
     }
 
-    fn build(&self, range: Option<(&str, &str)>) -> Result<DataFrame> {
+    /// 查询指定日期范围内的行情（含边界），并为每条行情关联同期财务数据。
+    pub fn query(&self, start: Date, end: Date) -> io::Result<DataFrame> {
+        self.build(Some((start, end)))
+    }
+
+    fn build(&self, range: Option<(Date, Date)>) -> io::Result<DataFrame> {
         let mut list = Vec::new();
         let mut index_table = BTreeSet::new();
 
-        for ((market_conn, finance_conn), metadata) in self.market.iter().zip(self.finance.iter()).zip(self.metadata.iter()) {
-            // 先加载财务数据
-            let Some(finance) = load_finance(finance_conn, range)? else {
+        for (meta, bars) in self.metadata.iter().zip(self.bar.iter()) {
+            // 范围过滤。
+            let Some(bars) = filter_range(bars, range) else {
                 continue;
             };
-            let finance = Arc::new(finance);
 
-            // 加载行情数据，同时检查对齐并计算收益
-            let Some((market, profit)) = load_market_with_profit(market_conn, range, &mut index_table, &finance, &metadata.code)? else {
-                continue;
-            };
-            let market = Arc::new(market);
+            // 计算前向收益（需要至少 3 条数据）。
+            let profit = bars
+                .windows(3)
+                .map(|w| {
+                    let curr = &w[0].market;
+                    let next1 = &w[1].market;
+                    let next2 = &w[2].market;
+                    [
+                        (next1.close - curr.close) / curr.close,
+                        (next1.close - next1.open) / next1.open,
+                        (next2.open - next1.open) / next1.open,
+                        (next2.close - next1.open) / next1.open,
+                        curr.turnover,
+                    ]
+                })
+                .collect();
 
-            let table = market.iter().enumerate().map(|(i, md)| (md.datetime, i)).collect::<FxHashMap<_, _>>();
-            let start = market[0].datetime;
-            let end = market[market.len() - 1].datetime;
+            for bar in &bars {
+                index_table.insert(bar.market.datetime);
+            }
+
+            let table = bars
+                .iter()
+                .enumerate()
+                .map(|(i, bar)| (bar.market.datetime, i))
+                .collect::<FxHashMap<_, _>>();
+            let start = bars[0].market.datetime;
+            let end = bars[bars.len() - 1].market.datetime;
 
             list.push(Arc::new(Contract {
                 start,
                 end,
-                metadata: metadata.clone(),
+                metadata: (**meta).clone(),
                 table,
-                market,
-                finance,
+                bar: Arc::new(bars),
                 profit,
             }));
         }
 
-        let start = *index_table.first().ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        let end = *index_table.last().ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-
-        let (sector, indice) = dataframe::collect_metadata_lists(&list);
+        let start = *index_table.first().ok_or_else(|| io::Error::other("数据源中没有行情数据"))?;
+        let end = *index_table.last().ok_or_else(|| io::Error::other("数据源中没有行情数据"))?;
 
         Ok(DataFrame {
             start,
             end,
             list,
             index: index_table.into_iter().collect(),
-            sector,
-            indice,
+            sector: self.sector.clone(),
+            indice: self.indice.clone(),
         })
     }
 }
 
-fn open_contract_databases(metadata: &[Metadata], directory: &Path) -> Result<Vec<Connection>> {
-    metadata
-        .par_iter()
-        .map(|metadata| {
-            let path = directory.join(format!("{}.db", metadata.code));
-            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        })
-        .collect()
+/// 读取单个股票的行情 JSON 文件（数组，每行一个交易日）。
+fn load_market_rows(path: &Path) -> io::Result<Vec<MarketRow>> {
+    let content = fs::read(path)?;
+    serde_json::from_slice(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("解析行情文件 {} 失败: {e}", path.display())))
 }
 
-fn query_market(database: &Connection, range: Option<(&str, &str)>, index_table: &mut BTreeSet<Date>) -> Result<Vec<MarketData>> {
-    let sql = if range.is_some() {
-        include_str!("sql/market_query_range.sql")
-    } else {
-        include_str!("sql/market_query_all.sql")
+/// 读取成分股 JSON（分类名 -> 带后缀代码数组）。
+fn load_groups(path: &Path) -> io::Result<HashMap<String, Vec<String>>> {
+    let content = fs::read(path)?;
+    serde_json::from_slice(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("解析成分股文件 {} 失败: {e}", path.display())))
+}
+
+/// 按日期范围过滤升序数据，返回 `None` 表示无交集。
+fn filter_range<T: RowDate>(rows: &[T], range: Option<(Date, Date)>) -> Option<Vec<T>>
+where
+    T: Clone,
+{
+    let Some((start, end)) = range else {
+        return Some(rows.to_vec());
     };
-    let mut stmt = database.prepare(sql)?;
-    let map_row = |row: &rusqlite::Row<'_>| {
-        let datetime_str: String = row.get(0)?;
-        let datetime = Date::parse(&datetime_str, &Iso8601::DATE)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
-        index_table.insert(datetime);
-        Ok(MarketData {
-            datetime,
-            change_percent: row.get(1)?,
-            open: row.get(2)?,
-            close: row.get(3)?,
-            high: row.get(4)?,
-            low: row.get(5)?,
-            volume: row.get(6)?,
-            turnover: row.get(7)?,
-            turnover_rate: row.get(8)?,
-            is_st: row.get(9)?,
-        })
-    };
+    let data = rows
+        .iter()
+        .filter(|row| row.date() >= start && row.date() <= end)
+        .cloned()
+        .collect::<Vec<_>>();
+    if data.is_empty() { None } else { Some(data) }
+}
 
-    match range {
-        Some((start, end)) => stmt.query_map(params![start, end], map_row)?.collect(),
-        None => stmt.query_map([], map_row)?.collect(),
+trait RowDate {
+    fn date(&self) -> Date;
+}
+
+impl RowDate for Bar {
+    fn date(&self) -> Date {
+        self.market.datetime
     }
 }
 
-fn query_finance(database: &Connection, range: Option<(&str, &str)>) -> Result<Vec<Finance>> {
-    let sql = if range.is_some() {
-        include_str!("sql/finance_query_range.sql")
-    } else {
-        include_str!("sql/finance_query_all.sql")
-    };
-    let mut stmt = database.prepare(sql)?;
-    let map_row = |row: &rusqlite::Row<'_>| {
-        let datetime_str: String = row.get(0)?;
-        let datetime = Date::parse(&datetime_str, &Iso8601::DATE)
-            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
-
-        Ok(Finance {
-            datetime,
-            total_shares: row.get(1)?,
-            float_shares: row.get(2)?,
-            total_market: row.get(3)?,
-            float_market: row.get(4)?,
-        })
-    };
-
-    match range {
-        Some((start, end)) => stmt.query_map(params![start, end], map_row)?.collect(),
-        None => stmt.query_map([], map_row)?.collect(),
-    }
-}
-
-/// 加载财务数据，空结果返回 None。
-fn load_finance(database: &Connection, range: Option<(&str, &str)>) -> Result<Option<Vec<Finance>>> {
-    let data = query_finance(database, range)?;
-    if data.is_empty() { Ok(None) } else { Ok(Some(data)) }
-}
-
-/// 加载行情数据，同时检查与财务数据的对齐并计算前向收益。
-fn load_market_with_profit(
-    database: &Connection,
-    range: Option<(&str, &str)>,
-    index_table: &mut BTreeSet<Date>,
-    finance: &[Finance],
-    code: &str,
-) -> Result<Option<MarketWithProfit>> {
-    let market = query_market(database, range, index_table)?;
-    if market.is_empty() {
-        return Ok(None);
-    }
-
-    // 对齐检查
-    if market.len() != finance.len() {
-        eprintln!("股票 {code} 数据对齐失败：行情数量为 {}，财务数量为 {}", market.len(), finance.len());
-        std::process::exit(0);
-    }
-    for (i, (md, fin)) in market.iter().zip(finance).enumerate() {
-        if md.datetime != fin.datetime {
-            eprintln!(
-                "股票 {code} 数据对齐失败：索引 {i} 的行情日期为 {}，财务日期为 {}",
-                md.datetime, fin.datetime
-            );
-            std::process::exit(0);
-        }
-    }
-
-    // 计算前向收益
-    let profit = market
-        .windows(3)
-        .map(|w| {
-            let curr = &w[0];
-            let next1 = &w[1];
-            let next2 = &w[2];
-            [
-                (next1.close - curr.close) / curr.close,
-                (next1.close - next1.open) / next1.open,
-                (next2.open - next1.open) / next1.open,
-                (next2.close - next1.open) / next1.open,
-                curr.turnover_rate,
-            ]
-        })
-        .collect();
-
-    Ok(Some((market, profit)))
-}
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, sync::Arc};
+    use std::{fs, io::Write};
 
     use tempfile::tempdir;
     use time::{Date, Month};
@@ -248,235 +261,116 @@ mod tests {
         Date::from_calendar_date(2025, Month::January, day).unwrap()
     }
 
-    fn metadata(code: &str) -> Metadata {
-        Metadata {
-            exchange: "SSE".to_string(),
-            name: Arc::from(format!("测试{code}")),
-            code: Arc::from(code),
-            prov: "上海".to_string(),
-            city: "上海".to_string(),
-            SW1: "行业一".to_string(),
-            SW2: "行业二".to_string(),
-            SW3: "行业三".to_string(),
-            indice: HashSet::from_iter(vec!["测试指数".to_string()]),
-            listing_date: "2020-01-01".to_string(),
+    /// 写入新数据源格式的测试文件。
+    fn write_market_json(path: &Path, rows: &[(&str, f64)]) {
+        let mut content = String::from("[");
+        for (i, (datetime, close)) in rows.iter().enumerate() {
+            if i > 0 {
+                content.push(',');
+            }
+            content.push_str(&format!(
+                r#"{{"datetime":"{datetime}","change_pct":0.01,"open":{close:.1},"close":{close:.1},"high":{close:.1},"low":{close:.1},"volume":100.0,"amount":1000.0,"turnover":0.02,"is_st":false,"total_market":{total_market:.1}}}"#,
+                total_market = close * 100.0
+            ));
         }
+        content.push(']');
+        let mut file = fs::File::create(path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
     }
 
-    fn market(datetime: &str, close: f64) -> MarketData {
-        MarketData {
-            datetime: Date::parse(datetime, &Iso8601::DATE).unwrap(),
-            change_percent: 0.01,
-            open: close - 1.0,
-            close,
-            high: close + 1.0,
-            low: close - 2.0,
-            volume: 100.0,
-            turnover: 1_000.0,
-            turnover_rate: 0.02,
-            is_st: false,
-        }
-    }
+    fn build_config(directory: &Path) -> Config {
+        let market = directory.join("market");
+        let metadata_path = directory.join("metadata.json");
+        let sector_json = directory.join("sector.json");
+        let indice_json = directory.join("indice.json");
+        fs::create_dir_all(&market).unwrap();
+        fs::write(
+            &metadata_path,
+            r#"{"000001.SZ":{"name":"测试股票","code":"000001.SZ","exchange":"深交所","listed_date":"2020-01-01"}}"#,
+        )
+        .unwrap();
+        fs::write(&sector_json, r#"{"行业一":["000001.SZ"]}"#).unwrap();
+        fs::write(&indice_json, r#"{"测试指数":["000001.SZ"]}"#).unwrap();
+        write_market_json(
+            &market.join("000001.SZ.json"),
+            &[("2025-01-01", 10.0), ("2025-01-02", 11.0), ("2025-01-03", 12.0)],
+        );
 
-    fn finance(datetime: &str, total_shares: f64) -> Finance {
-        Finance {
-            datetime: Date::parse(datetime, &Iso8601::DATE).unwrap(),
-            total_shares,
-            float_shares: total_shares / 2.0,
-            total_market: total_shares * 10.0,
-            float_market: total_shares * 5.0,
-        }
-    }
-
-    // 测试行情与财务按相同顺序精确对齐，并复用相同的日期 Arc。
-    #[test]
-    fn query_checks_market_and_finance_alignment() {
-        let directory = tempdir().unwrap();
-        let metadata_path = directory.path().join("metadata.db");
-        let market_dir = directory.path().join("market");
-        let finance_dir = directory.path().join("finance");
-        std::fs::create_dir_all(&market_dir).unwrap();
-        std::fs::create_dir_all(&finance_dir).unwrap();
-        let market_path = market_dir.join("000001.db");
-        let finance_path = finance_dir.join("000001.db");
-
-        {
-            let mut db = MetadataDb::new(&metadata_path).unwrap();
-            db.replace_all(&[metadata("000001")]).unwrap();
-        }
-        {
-            let mut db = MarketDataDb::new(&market_path).unwrap();
-            db.replace_all(&[market("2025-01-01", 10.0), market("2025-01-02", 11.0), market("2025-01-03", 12.0)])
-                .unwrap();
-        }
-        {
-            let mut db = FinanceDB::new(&finance_path).unwrap();
-            db.replace_all(&[finance("2025-01-01", 80.0), finance("2025-01-02", 100.0), finance("2025-01-03", 120.0)])
-                .unwrap();
-        }
-
-        let market_all = MarketDataDb::open_read_only(&market_path).unwrap().query_all().unwrap();
-        let finance_all = FinanceDB::open_read_only(&finance_path).unwrap().query_all().unwrap();
-        let config = Config {
+        Config {
             server: Default::default(),
             period: Vec::new(),
             data: crate::config::DataConfig {
-                market: market_dir.clone(),
-                finance: finance_dir.clone(),
-                metadata: metadata_path.clone(),
+                market,
+                metadata: metadata_path,
+                sector_json,
+                indice_json,
                 ..Default::default()
             },
-        };
+        }
+    }
+
+    // 测试新 JSON 数据源加载为 DataFrame：行情/财务同源、收益与换手率正确。
+    #[test]
+    fn loads_new_json_data_source() {
+        let directory = tempdir().unwrap();
+        let config = build_config(directory.path());
         let db = DataFrameDb::from_config(&config).unwrap();
         let all_frame = db.query_all().unwrap();
         let frame = db.query(date(1), date(3)).unwrap();
-        let range_frame = db.query(date(2), date(3)).unwrap();
 
-        assert_eq!(market_all.len(), 3);
-        assert_eq!(market_all[0].datetime.to_string(), "2025-01-01");
-        assert_eq!(market_all[2].datetime.to_string(), "2025-01-03");
-        assert_eq!(finance_all.len(), 3);
-        assert_eq!(finance_all[0].datetime.to_string(), "2025-01-01");
         assert_eq!(all_frame.start, date(1));
         assert_eq!(all_frame.end, date(3));
+        assert_eq!(all_frame.list.len(), 1);
+        assert_eq!(all_frame.list[0].metadata.code.as_ref(), "000001");
+        assert_eq!(all_frame.list[0].bar.len(), 3);
+        assert_eq!(all_frame.list[0].bar[0].finance.total_market, 1000.0);
+        assert_eq!(all_frame.list[0].bar[0].market.close, 10.0);
 
-        // 测试板块和指数列表从合约元数据汇总并去重。
-        assert_eq!(all_frame.sector.len(), 3);
+        // 收益：close 10/11/12，open 相同，前向收益为 0.1/0.0/1/11/1/11，换手率 0.02。
+        assert_eq!(all_frame.list[0].profit.len(), 1);
+        let [p1, p2, p3, p4, tr] = all_frame.list[0].profit[0];
+        assert!((p1 - 0.1).abs() < 1e-12);
+        assert!((p2 - 0.0).abs() < 1e-12);
+        assert!((p3 - 1.0 / 11.0).abs() < 1e-12);
+        assert!((p4 - 1.0 / 11.0).abs() < 1e-12);
+        assert!((tr - 0.02).abs() < 1e-12);
+
+        // 范围查询。
+        assert_eq!(frame.list[0].bar.len(), 3);
+        assert_eq!(frame.list.len(), 1);
+
+        // 全列表与 members 合并回填。
+        assert_eq!(all_frame.sector.len(), 1);
         assert!(all_frame.sector.contains("行业一"));
-        assert!(all_frame.sector.contains("行业二"));
-        assert!(all_frame.sector.contains("行业三"));
         assert_eq!(all_frame.indice.len(), 1);
         assert!(all_frame.indice.contains("测试指数"));
-
-        // 测试 index_iter 按索引表顺序返回位置和日期，并复用日期 Arc。
-        let indices = all_frame.index_iter().collect::<Vec<_>>();
-        assert_eq!(indices.iter().map(|item| item.index).collect::<Vec<_>>(), [0, 1, 2]);
-        assert_eq!(
-            indices.iter().map(|item| item.datetime.to_string()).collect::<Vec<_>>(),
-            ["2025-01-01", "2025-01-02", "2025-01-03"]
-        );
-        assert_eq!(indices[0].datetime, all_frame.index[0]);
-
-        assert_eq!(all_frame.list[0].market.len(), 3);
-        assert_eq!(all_frame.list[0].profit.len(), 1);
-        let [profit1, profit2, profit3, profit4, turnover_rate] = all_frame.list[0].profit[0];
-        assert!((profit1 - 0.1).abs() < 1e-12);
-        assert!((profit2 - 0.1).abs() < 1e-12);
-        assert!((profit3 - 0.1).abs() < 1e-12);
-        assert!((profit4 - 0.2).abs() < 1e-12);
-        assert!((turnover_rate - 0.02).abs() < 1e-12);
-        assert_eq!(all_frame.list[0].finance[0].datetime.to_string(), "2025-01-01");
-        assert_eq!(all_frame.list[0].finance[1].datetime.to_string(), "2025-01-02");
-        assert_eq!(frame.list.len(), 1);
-        assert_eq!(frame.list[0].metadata.code.as_ref(), "000001");
-        assert_eq!(frame.list[0].market.len(), 3);
-        assert_eq!(frame.list[0].finance.len(), 3);
-        assert_eq!(frame.list[0].finance[0].datetime.to_string(), "2025-01-01");
-        assert_eq!(frame.list[0].finance[1].datetime.to_string(), "2025-01-02");
-        assert_eq!(range_frame.list[0].market.len(), 2);
-        assert!(range_frame.list[0].profit.is_empty());
-        assert_eq!(range_frame.list[0].finance.len(), 2);
-        assert_eq!(range_frame.list[0].finance[0].datetime.to_string(), "2025-01-02");
-        assert_eq!(range_frame.list[0].finance[1].datetime.to_string(), "2025-01-03");
-        for (market, finance) in range_frame.list[0].market.iter().zip(range_frame.list[0].finance.iter()) {
-            assert_eq!(market.datetime, finance.datetime); // Date is Copy — value equality
-        }
-        for (market, finance) in frame.list[0].market.iter().zip(frame.list[0].finance.iter()) {
-            assert_eq!(market.datetime, finance.datetime); // Date is Copy — value equality
-        }
-
-        // 测试超出 DataFrame 的请求范围会裁剪到实际边界，并返回共享数据的新 DataFrame。
-        let before = Date::from_calendar_date(2024, Month::December, 31).unwrap();
-        let ranged = all_frame.range(before, date(4));
-        assert_eq!(ranged.start, date(1));
-        assert_eq!(ranged.end, date(3));
-        assert_eq!(
-            ranged.index.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
-            ["2025-01-01", "2025-01-02", "2025-01-03"]
-        );
-        assert_eq!(ranged.index[0], all_frame.index[0]); // Date is Copy
-        assert!(Arc::ptr_eq(&ranged.list[0], &all_frame.list[0]));
-        assert!(Arc::ptr_eq(&ranged.sector, &all_frame.sector));
-        assert!(Arc::ptr_eq(&ranged.indice, &all_frame.indice));
-
-        // 测试部分范围会同步修改起止日期和索引。
-        let partial = all_frame.range(date(2), date(4));
-        assert_eq!(partial.start, date(2));
-        assert_eq!(partial.end, date(3));
-        assert_eq!(
-            partial.index.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
-            ["2025-01-02", "2025-01-03"]
-        );
-        // Date is Copy — pointer comparison not applicable
-
-        // 测试 range_filter 在日期裁剪基础上过滤合约，并继续复用原始 Arc。
-        let filtered = all_frame.range_filter(date(2), date(4), |contract: &Arc<Contract>| contract.metadata.code.as_ref() == "000001");
-        assert_eq!(filtered.start, date(2));
-        assert_eq!(filtered.end, date(3));
-        assert_eq!(
-            filtered.index.iter().map(|d| d.to_string()).collect::<Vec<_>>(),
-            ["2025-01-02", "2025-01-03"]
-        );
-        assert_eq!(filtered.list.len(), 1);
-        assert!(Arc::ptr_eq(&filtered.list[0], &all_frame.list[0]));
-
-        // 测试过滤掉全部合约时，日期范围和索引保持不变。
-        let filtered_empty = all_frame.range_filter(date(2), date(3), |_| false);
-        assert_eq!(filtered_empty.start, date(2));
-        assert_eq!(filtered_empty.end, date(3));
-        assert_eq!(filtered_empty.index.len(), 2);
-        assert!(filtered_empty.list.is_empty());
-        assert!(Arc::ptr_eq(&filtered_empty.sector, &all_frame.sector));
-        assert!(Arc::ptr_eq(&filtered_empty.indice, &all_frame.indice));
-
-        // 测试无交集范围和反向范围返回空索引，并保留裁剪后的边界。
-        let empty_before = all_frame.range(before, before);
-        assert_eq!(empty_before.start, date(1));
-        assert_eq!(empty_before.end, before);
-        assert!(empty_before.index.is_empty());
-        let reversed = all_frame.range(date(3), date(2));
-        assert_eq!(reversed.start, date(3));
-        assert_eq!(reversed.end, date(2));
-        assert!(reversed.index.is_empty());
+        assert!(all_frame.list[0].metadata.members.contains("行业一"));
+        assert!(all_frame.list[0].metadata.members.contains("测试指数"));
     }
 
-    // 测试行情数据库存在但财务数据库缺失时，构造直接报错且不创建空文件。
+    // 测试范围过滤：只保留范围内数据，收益重新计算。
     #[test]
-    fn new_rejects_missing_finance_database() {
+    fn filters_range_and_recomputes_profit() {
         let directory = tempdir().unwrap();
-        let metadata_path = directory.path().join("metadata.db");
-        let market_dir = directory.path().join("market");
-        let finance_dir = directory.path().join("finance");
-        std::fs::create_dir_all(&market_dir).unwrap();
-        let market_path = market_dir.join("000002.db");
-        let missing_finance = finance_dir.join("000002.db");
+        let config = build_config(directory.path());
+        let db = DataFrameDb::from_config(&config).unwrap();
+        let frame = db.query(date(2), date(3)).unwrap();
 
-        let mut metadata_db = MetadataDb::new(&metadata_path).unwrap();
-        metadata_db.replace_all(&[metadata("000002")]).unwrap();
-        let mut market_db = MarketDataDb::new(&market_path).unwrap();
-        market_db.replace_all(&[market("2025-01-01", 10.0)]).unwrap();
-
-        assert!(DataFrameDb::new(&market_dir, &finance_dir, &metadata_path).is_err());
-        assert!(!missing_finance.exists());
+        assert_eq!(frame.start, date(2));
+        assert_eq!(frame.end, date(3));
+        assert_eq!(frame.list[0].bar.len(), 2);
+        assert_eq!(frame.list[0].bar[0].market.datetime.to_string(), "2025-01-02");
+        assert!(frame.list[0].profit.is_empty());
     }
-    // 测试只读打开缺失的合约数据库时返回错误，并且不会创建空数据库文件。
+
+    // 测试行情文件缺失时跳过该合约，无任何数据时查询返回错误。
     #[test]
-    fn new_does_not_create_missing_contract_database() {
+    fn skips_contract_with_missing_market_file() {
         let directory = tempdir().unwrap();
-        let metadata_path = directory.path().join("metadata.db");
-        let market_dir = directory.path().join("market");
-        let finance_dir = directory.path().join("finance");
-        std::fs::create_dir_all(&market_dir).unwrap();
-        let missing_market = market_dir.join("000003.db");
-        let missing_finance = finance_dir.join("000003.db");
+        let config = build_config(directory.path());
+        fs::remove_file(config.data.market.join("000001.SZ.json")).unwrap();
 
-        {
-            let mut db = MetadataDb::new(&metadata_path).unwrap();
-            db.replace_all(&[metadata("000003")]).unwrap();
-        }
-
-        assert!(DataFrameDb::new(&market_dir, &finance_dir, &metadata_path).is_err());
-        assert!(!missing_market.exists());
-        assert!(!missing_finance.exists());
+        let db = DataFrameDb::from_config(&config).unwrap();
+        assert!(db.query_all().is_err());
     }
 }

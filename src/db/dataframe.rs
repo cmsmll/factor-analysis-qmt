@@ -5,7 +5,7 @@ use time::Date;
 
 use crate::{
     args::Filter,
-    db::{Finance, MarketData, Metadata},
+    db::{Bar, Finance, Market, Metadata},
 };
 
 #[derive(Debug)]
@@ -63,41 +63,21 @@ impl DataFrame {
 
     /// 根据参数裁剪日期并过滤合约，板块和指数条件使用并集。
     pub fn filter(&self, args: &Filter) -> Self {
-        let has_metadata_filter = !args.sector.is_empty() || !args.indice.is_empty();
+        let has_members_filter = !args.sector.is_empty() || !args.indice.is_empty();
 
         self.range_filter(args.start, args.end, |contract| {
             let metadata = &contract.metadata;
-            if args.filter_bz && metadata.exchange == "北京证券交易所" {
+            if args.filter_bz && metadata.exchange == "北交所" {
                 return false;
             }
-            if !has_metadata_filter {
+            if !has_members_filter {
                 return true;
             }
 
-            args.sector.contains(&metadata.SW1)
-                || args.sector.contains(&metadata.SW2)
-                || args.sector.contains(&metadata.SW3)
-                || metadata.indice.iter().any(|indice| args.indice.contains(indice))
+            let members = &metadata.members;
+            args.sector.iter().any(|sector| members.contains(sector)) || args.indice.iter().any(|indice| members.contains(indice))
         })
     }
-}
-
-pub(super) fn collect_metadata_lists(list: &[Arc<Contract>]) -> (Arc<HashSet<String>>, Arc<HashSet<String>>) {
-    let mut sector = HashSet::new();
-    let mut indice = HashSet::new();
-
-    for contract in list {
-        let metadata = &contract.metadata;
-        sector.extend(
-            [&metadata.SW1, &metadata.SW2, &metadata.SW3]
-                .into_iter()
-                .filter(|value| !value.is_empty())
-                .cloned(),
-        );
-        indice.extend(metadata.indice.iter().filter(|value| !value.is_empty()).cloned());
-    }
-
-    (Arc::new(sector), Arc::new(indice))
 }
 
 /// 时间索引
@@ -118,16 +98,14 @@ impl Index {
 pub struct Contract {
     pub start: Date,
     pub end: Date,
+    /// 逐日行情与财务数据
+    pub bar: Arc<Vec<Bar>>,
     /// 合约元数据
     pub metadata: Metadata,
-    /// 时间表
-    pub table: FxHashMap<Date, usize>,
-    /// 行情数据
-    pub market: Arc<Vec<MarketData>>,
-    /// 财务数据
-    pub finance: Arc<Vec<Finance>>,
     /// 未来收益情况和换手率
     pub profit: Vec<[f64; 5]>,
+    /// 时间表
+    pub table: FxHashMap<Date, usize>,
 }
 
 impl Contract {
@@ -135,35 +113,36 @@ impl Contract {
         self.table.get(&index.datetime).copied()
     }
 
-    pub fn data(&self, i: &Index) -> Option<(&MarketData, &[f64; 5])> {
+    pub fn data(&self, i: &Index) -> Option<(&Market, &[f64; 5])> {
         let index = self.index(i)?;
         // 时间表能找到索引必然在范围内
-        let market = unsafe { self.market.get_unchecked(index) };
-        Some((market, self.profit.get(index)?))
+        let bar = unsafe { self.bar.get_unchecked(index) };
+        Some((&bar.market, self.profit.get(index)?))
     }
 
-    pub fn before(&self, index: &Index, days: usize) -> Option<&MarketData> {
+    pub fn before(&self, index: &Index, days: usize) -> Option<&Market> {
         let index = self.index(index)?.checked_sub(days)?;
-        self.market.get(index)
+        self.bar.get(index).map(|bar| &bar.market)
     }
 
-    pub fn before_and_profit(&self, index: &Index, days: usize) -> Option<(&MarketData, &[f64; 5])> {
+    pub fn before_and_profit(&self, index: &Index, days: usize) -> Option<(&Market, &[f64; 5])> {
         let index = self.index(index)?.checked_sub(days)?;
-        Some((self.market.get(index)?, self.profit.get(index)?))
+        Some((&self.bar.get(index)?.market, self.profit.get(index)?))
     }
 
-    pub fn after(&self, index: &Index, days: usize) -> Option<(&MarketData, &[f64; 5])> {
+    pub fn after(&self, index: &Index, days: usize) -> Option<(&Market, &[f64; 5])> {
         let index = self.index(index)?.checked_add(days)?;
-        Some((self.market.get(index)?, self.profit.get(index)?))
+        Some((&self.bar.get(index)?.market, self.profit.get(index)?))
     }
 
-    pub fn data_and_finance(&self, i: &Index) -> Option<(&MarketData, &[f64; 5], &Finance)> {
+    pub fn data_and_finance(&self, i: &Index) -> Option<(&Market, &[f64; 5], &Finance)> {
         let index = self.index(i)?;
         // 时间表能找到索引必然在范围内
-        let market = unsafe { self.market.get_unchecked(index) };
-        Some((market, self.profit.get(index)?, self.finance.get(index)?))
+        let bar = unsafe { self.bar.get_unchecked(index) };
+        Some((&bar.market, self.profit.get(index)?, &bar.finance))
     }
 }
+
 #[cfg(test)]
 mod tests {
     use time::format_description::well_known::Iso8601;
@@ -175,7 +154,7 @@ mod tests {
         Date::from_calendar_date(2025, Month::January, day).unwrap()
     }
 
-    fn contract(code: &str, exchange: &str, sector: &str, indice: &str) -> Arc<Contract> {
+    fn contract(code: &str, exchange: &str, members: &[&str]) -> Arc<Contract> {
         Arc::new(Contract {
             start: date(1),
             end: date(3),
@@ -183,35 +162,28 @@ mod tests {
                 exchange: exchange.to_string(),
                 name: Arc::from(code),
                 code: Arc::from(code),
-                prov: String::new(),
-                city: String::new(),
-                SW1: sector.to_string(),
-                SW2: String::new(),
-                SW3: String::new(),
-                indice: HashSet::from([indice.to_string()]),
                 listing_date: "2020-01-01".to_string(),
+                members: members.iter().map(|m| m.to_string()).collect(),
             },
             table: FxHashMap::default(),
-            market: Arc::new(Vec::new()),
-            finance: Arc::new(Vec::new()),
+            bar: Arc::new(Vec::new()),
             profit: Vec::new(),
         })
     }
 
     fn frame() -> DataFrame {
         let list = vec![
-            contract("000001", "上海证券交易所", "行业一", "沪深指数"),
-            contract("830001", "北京证券交易所", "行业二", "北证指数"),
+            contract("000001", "上交所", &["行业一", "沪深指数"]),
+            contract("830001", "北交所", &["行业二", "北证指数"]),
         ];
-        let (sector, indice) = collect_metadata_lists(&list);
 
         DataFrame {
             start: date(1),
             end: date(3),
             index: vec![date(1), date(2), date(3)],
             list,
-            sector,
-            indice,
+            sector: Arc::new(HashSet::from(["行业一".to_string(), "行业二".to_string()])),
+            indice: Arc::new(HashSet::from(["沪深指数".to_string(), "北证指数".to_string()])),
         }
     }
 
@@ -229,30 +201,33 @@ mod tests {
     // 测试 before 和 before_and_profit 返回历史数据。
     #[test]
     fn before_returns_historical_data() {
-        let mut contract = contract("000001", "上海证券交易所", "行业一", "沪深指数");
+        let mut contract = contract("000001", "上交所", &[]);
         let contract = Arc::get_mut(&mut contract).unwrap();
-        contract.market = Arc::new(
+        contract.bar = Arc::new(
             (1..=3)
-                .map(|day| MarketData {
-                    datetime: Date::parse(&format!("2025-01-{day:02}"), &Iso8601::DATE).unwrap(),
-                    close: f64::from(day),
-                    change_percent: 0.0,
-                    open: 0.0,
-                    high: 0.0,
-                    low: 0.0,
-                    volume: 0.0,
-                    turnover: 0.0,
-                    turnover_rate: 0.0,
-                    is_st: false,
+                .map(|day| Bar {
+                    market: Market {
+                        datetime: Date::parse(&format!("2025-01-{day:02}"), &Iso8601::DATE).unwrap(),
+                        close: f64::from(day),
+                        change_percent: 0.0,
+                        open: 0.0,
+                        high: 0.0,
+                        low: 0.0,
+                        volume: 0.0,
+                        amount: 0.0,
+                        turnover: 0.0,
+                        is_st: false,
+                    },
+                    finance: Finance { total_market: 0.0 },
                 })
                 .collect(),
         );
         contract.profit = vec![[0.1, 0.2, 0.3, 0.4, 0.5]; 3];
         contract.table = contract
-            .market
+            .bar
             .iter()
             .enumerate()
-            .map(|(index, market)| (market.datetime, index))
+            .map(|(index, bar)| (bar.market.datetime, index))
             .collect::<FxHashMap<_, _>>();
 
         let index = Index::new(1, date(2));
@@ -274,6 +249,40 @@ mod tests {
         assert_eq!(next.1, &[0.1, 0.2, 0.3, 0.4, 0.5]);
     }
 
+    // 测试 data_and_finance 经 Bar 返回行情与财务。
+    #[test]
+    fn data_and_finance_returns_bar_market_and_finance() {
+        let mut contract = contract("000001", "上交所", &[]);
+        let contract = Arc::get_mut(&mut contract).unwrap();
+        contract.bar = Arc::new(vec![Bar {
+            market: Market {
+                datetime: date(2),
+                close: 2.0,
+                change_percent: 0.0,
+                open: 0.0,
+                high: 0.0,
+                low: 0.0,
+                volume: 0.0,
+                amount: 0.0,
+                turnover: 0.0,
+                is_st: false,
+            },
+            finance: Finance { total_market: 2_000.0 },
+        }]);
+        contract.profit = vec![[0.1, 0.2, 0.3, 0.4, 0.5]];
+        contract.table = contract
+            .bar
+            .iter()
+            .enumerate()
+            .map(|(index, bar)| (bar.market.datetime, index))
+            .collect::<FxHashMap<_, _>>();
+
+        let index = Index::new(0, date(2));
+        let (market, _, finance) = contract.data_and_finance(&index).unwrap();
+        assert_eq!(market.close, 2.0);
+        assert_eq!(finance.total_market, 2_000.0);
+    }
+
     // 测试板块和指数条件使用并集，任意一项匹配即可保留合约。
     #[test]
     fn from_args_uses_sector_and_indice_union() {
@@ -293,14 +302,14 @@ mod tests {
         assert!(Arc::ptr_eq(&filtered.indice, &frame.indice));
     }
 
-    // 测试 filter_bz 只排除北京证券交易所。
+    // 测试 filter_bz 只排除北交所。
     #[test]
     fn from_args_filters_beijing_exchange_only() {
         let frame = frame();
         let filtered = frame.filter(&args(HashSet::new(), HashSet::new(), true, false));
 
         assert_eq!(filtered.list.len(), 1);
-        assert_eq!(filtered.list[0].metadata.exchange, "上海证券交易所");
+        assert_eq!(filtered.list[0].metadata.exchange, "上交所");
         assert_eq!(filtered.sector.len(), 2);
         assert_eq!(filtered.indice.len(), 2);
     }
@@ -309,7 +318,7 @@ mod tests {
     #[test]
     fn from_args_defers_st_filtering_to_market_data() {
         let mut frame = frame();
-        frame.list.push(contract("ST0001", "上海证券交易所", "行业三", "测试指数"));
+        frame.list.push(contract("ST0001", "上交所", &[]));
 
         let filtered = frame.filter(&args(HashSet::new(), HashSet::new(), false, true));
 

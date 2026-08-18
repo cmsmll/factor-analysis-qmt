@@ -7,7 +7,7 @@ use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Receiver;
 
-use crate::{db::MarketData, prelude::*, reject, resolve, resp::Resp, router::mode1::Base, toolbox::VJson};
+use crate::{db::Market, prelude::*, reject, resolve, resp::Resp, router::mode1::Base, toolbox::VJson};
 
 /// 注册成交量因子接口，并加入模式一因子列表。
 pub async fn router() -> Router {
@@ -92,6 +92,6 @@ fn volume_run(args: Req) -> Box<RawValue> {
 }
 
 #[inline]
-fn volume_factor(market: &MarketData) -> f64 {
+fn volume_factor(market: &Market) -> f64 {
     market.volume
 }

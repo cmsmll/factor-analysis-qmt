@@ -23,9 +23,5 @@ start = "2016-01-01"
 end = "2025-12-31"
 
 [data]
-market = "E:/stockdata/database/market"
-finance = "E:/stockdata/database/finance"
-metadata = "E:/stockdata/database/metadata.db"
-tbf_market = "E:/stockdata/tbf/market"
-tbf_finance = "E:/stockdata/tbf/finance"
-tbf_metadata = "E:/stockdata/tbf/metadata"
+market = "data/market"
+metadata = "data/metadata.json"

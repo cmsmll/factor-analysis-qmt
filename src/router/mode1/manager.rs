@@ -8,7 +8,7 @@ use tokio::{
     task::JoinSet,
 };
 
-use crate::{args::Filter, cache::Cache, db::MarketData};
+use crate::{args::Filter, cache::Cache, db::Market};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListItem {
@@ -93,7 +93,7 @@ pub struct Mode1Temp<'a> {
 pub struct Mode1Detail<'a> {
     pub factor: f64,            // 分位因子值
     pub profit: &'a [f64; 5],   // 分位收益率
-    pub market: &'a MarketData, // 股票市场数据
+    pub market: &'a Market, // 股票市场数据
 }
 
 #[derive(Debug, Serialize, Default)]

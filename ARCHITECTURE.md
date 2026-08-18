@@ -2,7 +2,7 @@
 
 ## 项目概要
 
-股票因子分析服务。从本地 TBF（天软二进制格式）原始数据解析行情、财务和元数据，存入 SQLite；服务启动时全部加载到内存 `DataFrame`，通过 REST API 对外提供分位因子分析能力。配套 Vue 3 前端展示因子列表和可视化图表。
+股票因子分析服务。从本地 `data/` 目录的 JSON 数据源加载行情、财务和元数据；服务启动时全部加载到内存 `DataFrame`，通过 REST API 对外提供分位因子分析能力。配套 Vue 3 前端展示因子列表和可视化图表。
 
 ---
 
@@ -12,8 +12,8 @@
 ┌─────────────────────────────────────────────────────┐
 │                  Rust Backend                        │
 │  ┌──────────┐  ┌──────────┐  ┌───────────────────┐ │
-│  │  Parse    │  │   Run    │  │   Test            │ │
-│  │ (TBF→DB)  │  │(Web Svr) │  │(DB integrity)     │ │
+│  │  Load    │  │   Run    │  │   Test            │ │
+│  │(JSON→DF) │  │(Web Svr) │  │(data check)       │ │
 │  └────┬─────┘  └────┬─────┘  └───────────────────┘ │
 │       │             │                               │
 │       ▼             ▼                               │
@@ -60,17 +60,16 @@ factor-analysis/
 ├── src/                    # Rust 后端
 │   ├── main.rs             # 入口：mimalloc 全局分配器 + tokio main
 │   ├── lib.rs              # 模块导出 + 全局懒加载常量 (CONFIG, DF, MODE1)
-│   ├── app/                # CLI 子命令（parse / run / test）
+│   ├── app/                # CLI 子命令（run / test）
 │   ├── args.rs             # 请求参数类型（Filter, NumArg, IntArg...）
 │   ├── cache.rs            # 文件缓存 + 广播通道并发控制
 │   ├── config.rs           # TOML 配置加载与校验
-│   ├── db/                 # SQLite 数据库层
-│   │   ├── parse.rs        # TBF 二进制解析
-│   │   ├── market.rs       # 行情数据查询
-│   │   ├── finance.rs      # 财务数据查询
-│   │   ├── metadata.rs     # 合约元数据查询
+│   ├── db/                 # JSON 数据源加载层
+│   │   ├── market.rs       # 行情数据模型
+│   │   ├── finance.rs      # 财务数据模型
+│   │   ├── metadata.rs     # 合约元数据加载
 │   │   ├── dataframe.rs    # 内存 DataFrame 结构体
-│   │   └── sql/            # 预编译 SQL 模板
+│   │   └── mod.rs          # DataFrameDb：加载与收益计算
 │   ├── math/               # 数学/技术指标计算
 │   │   ├── sum.rs          # SIMD 加速求和 (AVX2/AVX512)
 │   │   ├── avg.rs          # 多模式平均值
@@ -127,17 +126,17 @@ factor-analysis/
 
 ## 核心数据流
 
-### 1. 数据管道：TBF → SQLite → DataFrame
+### 1. 数据管道：JSON 数据源 → DataFrame
 
 ```
-TBF 原始文件                    SQLite 数据库                  内存 DataFrame
-(market/*.tbf)  ──parse──►  market/<code>.db  ──query──►  Vec<Contract>
-(finance/*.tbf) ──parse──►  finance/<code>.db ──query──►    ├── market: Vec<MarketData>
-(metadata/*)    ──parse──►  metadata.db       ──query──►    ├── finance: Vec<Finance>
-                                                              └── meta: Metadata
+JSON 数据源                         内存 DataFrame
+data/metadata.json     ──load──►  Vec<Metadata>
+data/market/<code>.json ──load──►  Vec<MarketData>  （每行含行情+财务字段）
+data/行业成分股.json      ──load──►  Members（行业归属）
+data/指数成分股.json      ──load──►  Members（指数归属）
 ```
-- `factor-analysis parse`：读取 TBF 二进制文件，按合约代码创建独立 SQLite 数据库
-- 服务启动 (`App::Run`)：`DataFrameDb::from_config()` → 遍历所有合约数据库 → 加载到 `DataFrame`
+- 数据源为 `data/` 目录下的 JSON 文件：`metadata.json`（合约元数据）、`market/<code>.json`（每只股票一个数组文件，每行一个交易日，行情与财务字段合并）、`行业成分股.json` / `指数成分股.json`（分类归属）
+- 服务启动 (`App::Run`)：`DataFrameDb::from_config()` → 遍历 `data/market/*.json` 加载到 `DataFrame`
 - `DataFrame` 类型 (src/db/dataframe.rs)：
   - `list: Vec<Arc<Contract>>` — 每只股票的完整时序数据
   - `index: Vec<Date>` — 市场的完整交易日历
@@ -189,14 +188,13 @@ Mode1Store (items[])              Mode1PreviewStore (results{})
 
 ## 核心模块详解
 
-### db/ — SQLite 数据库层
+### db/ — JSON 数据源加载层
 
-- **每只股票一个独立数据库文件**，按股票代码命名
-- 行情表 (`daily`)：日期、开盘/收盘/最高/最低价、成交量/额
-- 财务表 (`finance`)：日期、总市值、流通市值、PE/PB/PS 等 18 项指标
-- 元数据表 (`metadata`)：股票代码、名称、上市日期、板块、指数归属等
-- 预编译 SQL 模板位于 `src/db/sql/`，运行时读取并参数化
-- 使用 `rusqlite` + `bundled` 模式，无需外部 SQLite
+- `data/market/<code>.json`：每只股票一个 JSON 数组文件，每行一个交易日的行情记录，行情与财务字段合并（含 `total_market` 总市值）
+- `data/metadata.json`：合约元数据（名称、交易所、上市日期），代码带交易所后缀
+- `data/行业成分股.json` / `data/指数成分股.json`：分类名到股票代码数组的归属映射
+- `DataFrameDb` (src/db/mod.rs)：读取元数据与行情 JSON，按日期范围过滤并计算前向收益，构建内存 `DataFrame`
+- 行情字段映射：数据源 `change_pct`/`amount`/`turnover`（换手率）对应结构 `change_percent`/`amount`/`turnover`
 
 ### math/ — SIMD 加速数学库
 
@@ -264,7 +262,7 @@ static MODE1: LazyLock<Mode1Manager>  // 因子管理器，服务启动时初始
 | 运行时 | Rust (edition 2024) | nightly |
 | Web 框架 | Salvo (git rev) | — |
 | OpenAPI | salvo-oapi + Swagger UI | — |
-| 数据库 | SQLite via rusqlite (bundled) | 0.40 |
+| 数据源 | 本地 JSON（`data/` 目录） | — |
 | 序列化 | serde + serde_json | 1.0 |
 | 并发 | tokio (full) + rayon + crossbeam-channel | — |
 | SIMD | 运行时 CPU 特性检测 (AVX2/AVX512) | — |
@@ -281,9 +279,15 @@ static MODE1: LazyLock<Mode1Manager>  // 因子管理器，服务启动时初始
 ## CLI 命令
 
 ```
-factor-analysis parse        解析 TBF 原始数据 → SQLite（行情/财务/元数据）
 factor-analysis run          启动 Web 服务（可选 -c 清空缓存）
-factor-analysis test         检查数据库完整性，导出 JSON
+factor-analysis test         数据源检查命令（暂未实现）
+```
+
+## 快速开始
+
+```bash
+# 1. 启动 Web 服务（自动加载 data/ 目录 JSON 数据）
+cargo run --release -- run
 ```
 
 ## API 端点
@@ -305,16 +309,13 @@ factor-analysis test         检查数据库完整性，导出 JSON
 ## 运行方式
 
 ```bash
-# 1. 解析 TBF 原始数据
-cargo run --release -- parse
-
-# 2. 启动 Web 服务（自动加载 DB）
+# 1. 启动 Web 服务（自动加载 data/ 目录 JSON 数据）
 cargo run --release -- run
 
-# 3. 前端开发
+# 2. 前端开发
 cd client && pnpm dev
 
-# 4. 前端生产构建
+# 3. 前端生产构建
 cd client && pnpm build
 ```
 

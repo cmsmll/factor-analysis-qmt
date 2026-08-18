@@ -39,7 +39,7 @@ pub async fn router() -> Router {
 
 /// 获取股票池指数列表。
 ///
-/// 返回所有合约元数据中 `indice` 字段的去重集合。集合序列化后的顺序不固定。
+/// 返回成分股 JSON（`data/指数成分股.json`）中全部指数分类的去重集合。集合序列化后的顺序不固定。
 #[endpoint(
     tags("基础数据"),
     operation_id = "list_indices",
@@ -51,7 +51,7 @@ fn indice() -> Res<Arc<HashSet<String>>> {
 
 /// 获取股票池行业板块列表。
 ///
-/// 返回所有合约元数据中 `SW1`、`SW2`、`SW3` 的非空去重集合。
+/// 返回成分股 JSON（`data/行业成分股.json`）中全部行业分类的去重集合。
 #[endpoint(
     tags("基础数据"),
     operation_id = "list_sectors",
@@ -104,7 +104,7 @@ fn test_run() -> Box<RawValue> {
         for item in &df.list {
             if let Some((curr, profit)) = item.data(&index) {
                 items.push(Mode1Temp {
-                    factor: curr.turnover_rate,
+                    factor: curr.turnover,
                     profit,
                 });
             }
