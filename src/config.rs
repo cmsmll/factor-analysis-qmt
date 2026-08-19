@@ -191,6 +191,9 @@ pub struct DataConfig {
     /// 指数成分股 JSON 文件。
     #[serde(default = "default_indice_json")]
     pub indice_json: PathBuf,
+    /// 指数历史收益 JSON 目录。
+    #[serde(default = "default_indice_dir")]
+    pub indice_dir: PathBuf,
 }
 
 fn default_cache_dir() -> PathBuf {
@@ -198,11 +201,15 @@ fn default_cache_dir() -> PathBuf {
 }
 
 fn default_sector_json() -> PathBuf {
-    PathBuf::from("data/行业成分股.json")
+    PathBuf::from("data/sector.json")
 }
 
 fn default_indice_json() -> PathBuf {
-    PathBuf::from("data/指数成分股.json")
+    PathBuf::from("data/indice.json")
+}
+
+fn default_indice_dir() -> PathBuf {
+    PathBuf::from("data/indice")
 }
 
 impl Default for DataConfig {
@@ -213,6 +220,7 @@ impl Default for DataConfig {
             metadata: PathBuf::from("data/metadata.json"),
             sector_json: default_sector_json(),
             indice_json: default_indice_json(),
+            indice_dir: default_indice_dir(),
         }
     }
 }

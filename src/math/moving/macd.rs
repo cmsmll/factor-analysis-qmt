@@ -23,12 +23,23 @@ impl MACD {
 
     /// 预热未完成时返回 `None`，返回值为 `2 * (DIF - DEA)`。
     pub fn next(&mut self, close: f64) -> Option<f64> {
-        let short = self.short.next(close);
-        let long = self.long.next(close);
-        let dif = short.zip(long).map(|(short, long)| short - long)?;
+        let dif = self.dif(close)?;
         let dea = self.mid.next(dif)?;
 
         Some(2.0 * (dif - dea))
+    }
+
+    /// 输入新值并返回 DIF（快线 EMA 与慢线 EMA 之差）；预热未完成时返回 `None`。
+    pub fn dif(&mut self, close: f64) -> Option<f64> {
+        let short = self.short.next(close);
+        let long = self.long.next(close);
+        short.zip(long).map(|(short, long)| short - long)
+    }
+
+    /// 输入新值并返回 DEA（DIF 的中线 EMA）；预热未完成时返回 `None`。
+    pub fn dea(&mut self, close: f64) -> Option<f64> {
+        let dif = self.dif(close)?;
+        self.mid.next(dif)
     }
 }
 

@@ -2,6 +2,7 @@
 //!
 //! OpenAPI JSON 位于 `/api-doc/openapi.json`，Swagger UI 位于 `/swagger-ui`。
 
+pub mod indice_history;
 pub mod mode1;
 
 use std::{collections::HashSet, sync::Arc};
@@ -28,18 +29,18 @@ pub async fn router() -> Router {
     Router::new()
         .push(
             Router::with_path("api")
-                .push(mode1::mode1_router().await)
-                .push(Router::with_path("indice").get(indice))
-                .push(Router::with_path("sector").get(sector))
-                .push(Router::with_path("period").get(period))
-                .push(Router::with_path("test").get(test)),
+            .push(Router::with_path("indice").get(indice).post(indice_history::indice_history))
+            .push(Router::with_path("sector").get(sector))
+            .push(Router::with_path("period").get(period))
+            .push(Router::with_path("test").get(test))
+            .push(mode1::mode1_router().await)
         )
         .get(hello)
 }
 
 /// 获取股票池指数列表。
 ///
-/// 返回成分股 JSON（`data/指数成分股.json`）中全部指数分类的去重集合。集合序列化后的顺序不固定。
+/// 返回成分股 JSON（`data/indice.json`）中全部指数分类的去重集合。集合序列化后的顺序不固定。
 #[endpoint(
     tags("基础数据"),
     operation_id = "list_indices",
@@ -51,7 +52,7 @@ fn indice() -> Res<Arc<HashSet<String>>> {
 
 /// 获取股票池行业板块列表。
 ///
-/// 返回成分股 JSON（`data/行业成分股.json`）中全部行业分类的去重集合。
+/// 返回成分股 JSON（`data/sector.json`）中全部行业分类的去重集合。
 #[endpoint(
     tags("基础数据"),
     operation_id = "list_sectors",

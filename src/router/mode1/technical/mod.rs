@@ -2,10 +2,15 @@ use crate::router::mode1::validate_period;
 
 pub const LABEL: &str = super::TECHNICAL;
 
+pub mod arbr;
+pub mod aroon;
 pub mod bbi;
 pub mod bias_n;
+pub mod bollinger;
 pub mod cci_n;
+pub mod cr_n;
 pub mod ema_close_n;
 pub mod macd;
 pub mod mass;
+pub mod psy_n;
 pub mod sma_close_n;

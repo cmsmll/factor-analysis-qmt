@@ -44,6 +44,8 @@ struct MarketRow {
     volume: f64,
     amount: f64,
     turnover: f64,
+    #[serde(default)]
+    dividend_yield: f64,
     is_st: bool,
     #[serde(default)]
     total_market: f64,
@@ -62,6 +64,7 @@ impl MarketRow {
                 volume: self.volume,
                 amount: self.amount,
                 turnover: self.turnover,
+                dividend_yield: self.dividend_yield,
                 is_st: self.is_st,
             },
             finance: Finance {

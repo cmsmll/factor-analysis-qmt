@@ -13,11 +13,14 @@ pub mod momentum;
 pub mod risk;
 pub mod technical;
 
-pub use basic::market_value;
-pub use emotion::{turnover, turnover_n, turnover_rate, turnover_rate_n, volume, volume_n};
-pub use momentum::{pvt, pvt_n, trix_n};
-pub use risk::{amplitude, atr_n};
-pub use technical::{bbi, bias_n, cci_n, ema_close_n, macd, mass, sma_close_n};
+pub use basic::{dividend_yield, market_value};
+pub use emotion::{
+    mfi_n, power_ratio, turnover, turnover_n, turnover_rate, turnover_rate_n, turnover_ratio_n,
+    vmacd, volume, volume_n, volume_stat, wvad,
+};
+pub use momentum::{linreg_n, price_mean_n, pvt, pvt_n, roc_n, trix_n};
+pub use risk::{amplitude, atr_n, return_stat_n};
+pub use technical::{arbr, aroon, bbi, bias_n, bollinger, cci_n, cr_n, ema_close_n, macd, mass, psy_n, sma_close_n};
 
 pub const BASIC_DERIVED: &str = "基础科目及衍生类因子";
 pub const QUALITY: &str = "质量类因子";
@@ -81,6 +84,22 @@ pub async fn mode1_router() -> Router {
         .push(bbi::router().await)
         .push(mass::router().await)
         .push(trix_n::router().await)
+        .push(dividend_yield::router().await)
+        .push(roc_n::router().await)
+        .push(linreg_n::router().await)
+        .push(price_mean_n::router().await)
+        .push(return_stat_n::router().await)
+        .push(bollinger::router().await)
+        .push(psy_n::router().await)
+        .push(arbr::router().await)
+        .push(cr_n::router().await)
+        .push(aroon::router().await)
+        .push(mfi_n::router().await)
+        .push(wvad::router().await)
+        .push(volume_stat::router().await)
+        .push(turnover_ratio_n::router().await)
+        .push(power_ratio::router().await)
+        .push(vmacd::router().await)
 }
 
 /// 按筛选条件获取模式一因子的请求参数和分析结果。

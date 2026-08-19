@@ -132,10 +132,10 @@ factor-analysis/
 JSON 数据源                         内存 DataFrame
 data/metadata.json     ──load──►  Vec<Metadata>
 data/market/<code>.json ──load──►  Vec<MarketData>  （每行含行情+财务字段）
-data/行业成分股.json      ──load──►  Members（行业归属）
-data/指数成分股.json      ──load──►  Members（指数归属）
+data/sector.json         ──load──►  Members（行业归属）
+data/indice.json         ──load──►  Members（指数归属）
 ```
-- 数据源为 `data/` 目录下的 JSON 文件：`metadata.json`（合约元数据）、`market/<code>.json`（每只股票一个数组文件，每行一个交易日，行情与财务字段合并）、`行业成分股.json` / `指数成分股.json`（分类归属）
+- 数据源为 `data/` 目录下的 JSON 文件：`metadata.json`（合约元数据）、`market/<code>.json`（每只股票一个数组文件，每行一个交易日，行情与财务字段合并）、`sector.json` / `indice.json`（分类归属）
 - 服务启动 (`App::Run`)：`DataFrameDb::from_config()` → 遍历 `data/market/*.json` 加载到 `DataFrame`
 - `DataFrame` 类型 (src/db/dataframe.rs)：
   - `list: Vec<Arc<Contract>>` — 每只股票的完整时序数据
@@ -192,7 +192,7 @@ Mode1Store (items[])              Mode1PreviewStore (results{})
 
 - `data/market/<code>.json`：每只股票一个 JSON 数组文件，每行一个交易日的行情记录，行情与财务字段合并（含 `total_market` 总市值）
 - `data/metadata.json`：合约元数据（名称、交易所、上市日期），代码带交易所后缀
-- `data/行业成分股.json` / `data/指数成分股.json`：分类名到股票代码数组的归属映射
+- `data/sector.json` / `data/indice.json`：分类名到股票代码数组的归属映射
 - `DataFrameDb` (src/db/mod.rs)：读取元数据与行情 JSON，按日期范围过滤并计算前向收益，构建内存 `DataFrame`
 - 行情字段映射：数据源 `change_pct`/`amount`/`turnover`（换手率）对应结构 `change_percent`/`amount`/`turnover`
 

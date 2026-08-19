@@ -29,6 +29,9 @@ pub struct Market {
     pub amount: f64,
     /// 换手率（百分比）
     pub turnover: f64,
+    /// 股息率（百分比）
+    #[serde(default)]
+    pub dividend_yield: f64,
     /// 是否为ST
     pub is_st: bool,
 }
@@ -88,6 +91,7 @@ mod tests {
             volume: 100.0,
             amount: 1_000.0,
             turnover: 0.02,
+            dividend_yield: 0.0,
             is_st,
         }
     }
