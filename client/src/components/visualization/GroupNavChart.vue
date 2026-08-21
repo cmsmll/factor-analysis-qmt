@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
-import { NButton, NCheckbox, NModal, NRadioGroup, NRadio, NSpace } from 'naive-ui'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { NButton, NRadioGroup, NRadio } from 'naive-ui'
 import { fetchIndiceHistory, fetchIndices } from '@/api/mode1'
+import CloseIcon from '@/assets/icons/icon-close.svg'
+import SearchIcon from '@/assets/icons/search.svg'
 import { sumReturnPercentSeries, formatDate } from '@/utils/factorSeries'
 import { useChartKeyboardPointer } from '@/utils/chartKeyboard'
 import { useGlobalMessageStore } from '@/stores/globalMessage'
@@ -33,6 +35,18 @@ const showPicker = ref(false)
 const indiceList = ref<string[]>([])
 const indiceLoading = ref(false)
 const indiceError = ref('')
+const keyword = ref('')
+
+/** 搜索词过滤后的指数列表。 */
+const filteredIndices = computed(() => {
+  const value = keyword.value.trim().toLocaleLowerCase()
+  if (!value) return indiceList.value
+  return indiceList.value.filter((item) => item.toLocaleLowerCase().includes(value))
+})
+
+watch(showPicker, (value) => {
+  if (value) keyword.value = ''
+})
 
 /** 已勾选指数及其历史收益数据。 */
 const checkedIndices = ref<Map<string, IndicePoint[]>>(new Map())
@@ -189,6 +203,19 @@ async function toggleIndice(name: string, checked: boolean): Promise<void> {
   }
 }
 
+/** 勾选全部指数（逐个异步加载，复用 toggleIndice 的请求管理）。 */
+function selectAllIndices(): void {
+  for (const name of filteredIndices.value) {
+    if (!checkedIndices.value.has(name)) void toggleIndice(name, true)
+  }
+}
+
+/** 清空全部已勾选指数。 */
+function clearIndices(): void {
+  checkedIndices.value.clear()
+  checkedIndices.value = new Map(checkedIndices.value)
+}
+
 onBeforeUnmount(() => {
   checkedIndices.value.clear()
   pendingIndices.value.clear()
@@ -226,30 +253,62 @@ onBeforeUnmount(() => {
       @keydown="handleChartKeydown"
       @mousemove="handleChartMousemove"
     />
-    <NModal
-      v-model:show="showPicker"
-      preset="card"
-      title="指数同框"
-      style="width: 360px"
-      :bordered="false"
-    >
-      <NSpace vertical size="small">
-        <div v-if="indiceLoading" class="indice-hint">加载中…</div>
-        <div v-else-if="indiceError" class="indice-hint indice-error">{{ indiceError }}</div>
-        <div v-else-if="indiceList.length === 0" class="indice-hint">暂无指数数据</div>
-        <template v-else>
-          <NCheckbox
-            v-for="name in indiceList"
-            :key="name"
-            :checked="checkedIndices.has(name)"
-            :loading="pendingIndices.has(name)"
-            @update:checked="(checked: boolean) => toggleIndice(name, checked)"
-          >
-            {{ name }}
-          </NCheckbox>
-        </template>
-      </NSpace>
-    </NModal>
+    <Teleport to="body">
+      <Transition name="filter-selector">
+        <div v-if="showPicker" class="selector-mask" @click.self="showPicker = false">
+          <section class="selector-dialog" role="dialog" aria-modal="true" aria-label="指数同框">
+            <header class="selector-header">
+              <label class="search-box">
+                <img :src="SearchIcon" class="search-icon" alt="" />
+                <input v-model="keyword" type="search" placeholder="搜索指数" autofocus />
+              </label>
+              <button class="icon-button" type="button" aria-label="关闭" @click="showPicker = false">
+                <img :src="CloseIcon" alt="" />
+              </button>
+            </header>
+
+            <div class="selector-summary">
+              <strong>指数同框</strong>
+              <span>已选择 {{ checkedIndices.size }} / {{ indiceList.length }}</span>
+            </div>
+
+            <div class="selector-content">
+              <div v-if="indiceLoading" class="empty-state">加载中…</div>
+              <div v-else-if="indiceError" class="empty-state indice-error">{{ indiceError }}</div>
+              <div v-else-if="indiceList.length === 0" class="empty-state">暂无指数数据</div>
+              <template v-else>
+                <button
+                  v-for="name in filteredIndices"
+                  :key="name"
+                  class="option-item"
+                  :class="{ selected: checkedIndices.has(name) }"
+                  type="button"
+                  @click="toggleIndice(name, !checkedIndices.has(name))"
+                >
+                  <span class="option-check" aria-hidden="true">{{
+                    pendingIndices.has(name) ? '…' : checkedIndices.has(name) ? '✓' : ''
+                  }}</span>
+                  <span>{{ name }}</span>
+                </button>
+                <div v-if="filteredIndices.length === 0" class="empty-state">没有匹配的选项</div>
+              </template>
+            </div>
+
+            <footer class="selector-footer">
+              <button type="button" class="footer-button select-all-button" @click="selectAllIndices">
+                全选
+              </button>
+              <button type="button" class="footer-button confirm-button" @click="showPicker = false">
+                完成
+              </button>
+              <button type="button" class="footer-button clear-button" @click="clearIndices">
+                清空
+              </button>
+            </footer>
+          </section>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -290,12 +349,227 @@ onBeforeUnmount(() => {
   height: 450px;
 }
 
-.indice-hint {
+.selector-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.selector-dialog {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(720px, 100%);
+  height: min(620px, calc(100vh - 48px));
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.24);
+}
+
+.selector-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.search-box {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  color: #909399;
+  transition: border-color 160ms ease;
+}
+
+.search-box:focus-within {
+  border-color: #409eff;
+}
+
+.search-box input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #303133;
+  background: transparent;
+  font: inherit;
+}
+
+.search-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: #909399;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: #409eff;
+  background: #ecf5ff;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.selector-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 8px;
+  color: #303133;
+}
+
+.selector-summary span {
+  color: #909399;
   font-size: 13px;
-  color: rgb(118, 124, 130);
+}
+
+.selector-content {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
+  margin: 8px 20px 18px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  color: #606266;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.option-item:hover,
+.option-item.selected {
+  border-color: #409eff;
+  color: #409eff;
+  background: #ecf5ff;
+}
+
+.option-check {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-items: center;
+  border: 1px solid #c0c4cc;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 12px;
+}
+
+.selected .option-check {
+  border-color: #409eff;
+  background: #409eff;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  padding: 72px 0;
+  color: #909399;
+  text-align: center;
 }
 
 .indice-error {
   color: #d03050;
+}
+
+.selector-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: center;
+  padding: 14px 20px;
+  border-top: 1px solid #ebeef5;
+}
+
+.footer-button {
+  min-width: 72px;
+  height: 34px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  color: #606266;
+  background: #fff;
+  cursor: pointer;
+}
+
+.select-all-button {
+  justify-self: start;
+}
+
+.confirm-button {
+  justify-self: center;
+  border-color: #409eff;
+  color: #fff;
+  background: #409eff;
+}
+
+.clear-button {
+  justify-self: end;
+}
+
+.filter-selector-enter-active,
+.filter-selector-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.filter-selector-enter-active .selector-dialog,
+.filter-selector-leave-active .selector-dialog {
+  transition: transform 160ms ease;
+}
+
+.filter-selector-enter-from,
+.filter-selector-leave-to {
+  opacity: 0;
+}
+
+.filter-selector-enter-from .selector-dialog,
+.filter-selector-leave-to .selector-dialog {
+  transform: translateY(10px) scale(0.98);
+}
+
+@media (max-width: 640px) {
+  .selector-mask {
+    padding: 12px;
+  }
+
+  .selector-dialog {
+    height: calc(100vh - 24px);
+  }
+
+  .selector-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>
