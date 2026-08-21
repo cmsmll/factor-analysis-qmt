@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { NButton, NRadioGroup, NRadio } from 'naive-ui'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { NButton, NCheckbox, NModal, NRadioGroup, NRadio, NSpace } from 'naive-ui'
+import { fetchIndiceHistory, fetchIndices } from '@/api/mode1'
 import { sumReturnPercentSeries, formatDate } from '@/utils/factorSeries'
 import { useChartKeyboardPointer } from '@/utils/chartKeyboard'
+import { useGlobalMessageStore } from '@/stores/globalMessage'
+import type { IndicePoint } from '@/types/mode1'
 
 const props = withDefaults(
   defineProps<{
@@ -24,8 +27,17 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:quantileCount': [value: number]
 }>()
+const globalMessage = useGlobalMessageStore()
 const sortMode = ref(0)
-const showIndex = ref(false)
+const showPicker = ref(false)
+const indiceList = ref<string[]>([])
+const indiceLoading = ref(false)
+const indiceError = ref('')
+
+/** 已勾选指数及其历史收益数据。 */
+const checkedIndices = ref<Map<string, IndicePoint[]>>(new Map())
+/** 各指数历史请求进行中标记。 */
+const pendingIndices = ref<Set<string>>(new Set())
 
 const sortLabel = computed(() => {
   if (sortMode.value === 1) return '↓ 降序'
@@ -48,12 +60,33 @@ const COLORS = [
 
 const selectedSeries = computed(() => props.changePercent)
 
-// 暂时保留旧版指数按钮，指数数据接入后再展示基准曲线。
-const indexReturnSeries = computed<number[]>(() => [])
-
 const selectedNames = computed(() => props.quantileNames)
 const { setChartRef, handleChartFocus, handleChartKeydown, handleChartMousemove } =
   useChartKeyboardPointer(computed(() => props.datetimes.length))
+
+/** 图表 x 轴日期（YYYY-MM-DD）。 */
+const axisDates = computed(() => props.datetimes.map(formatDate))
+
+/**
+ * 指数历史收益对齐到图表 x 轴：
+ * - 只渲染 x 轴上存在的日期（交集）；
+ * - 指数数据比图表范围短时，左侧或右侧缺失日期用 0 收益补全。
+ */
+function alignIndiceSeries(points: IndicePoint[]): number[] {
+  const byDate = new Map(points.map((point) => [point.datetime, point.profit]))
+  return axisDates.value.map((date) => byDate.get(date) ?? 0)
+}
+
+const indiceSeries = computed(() =>
+  [...checkedIndices.value.entries()].map(([name, points]) => ({
+    name,
+    type: 'line' as const,
+    data: sumReturnPercentSeries(alignIndiceSeries(points)),
+    smooth: true,
+    showSymbol: false,
+    lineStyle: { width: 1.5, type: 'dotted' as const },
+  })),
+)
 
 const option = computed(() => ({
   tooltip: {
@@ -67,12 +100,12 @@ const option = computed(() => ({
   legend: {
     bottom: 0,
     type: 'scroll' as const,
-    data: selectedNames.value,
+    data: [...selectedNames.value, ...checkedIndices.value.keys()],
   },
   grid: { top: 20, left: 60, right: 30, bottom: 70 },
   xAxis: {
     type: 'category' as const,
-    data: props.datetimes.map(formatDate),
+    data: axisDates.value,
   },
   yAxis: {
     type: 'value' as const,
@@ -111,17 +144,55 @@ const option = computed(() => ({
       showSymbol: false,
       lineStyle: { width: index === 0 || index === selectedSeries.value.length - 1 ? 2 : 1.5 },
     })),
-    {
-      name: 'A股指数',
-      type: 'line' as const,
-      data: showIndex.value ? indexReturnSeries.value : [],
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { color: '#333', width: 2 },
-      itemStyle: { color: '#333' },
-    },
+    ...indiceSeries.value,
   ],
 }))
+
+async function openPicker(): Promise<void> {
+  showPicker.value = true
+  if (indiceList.value.length > 0) return
+
+  indiceLoading.value = true
+  indiceError.value = ''
+  try {
+    indiceList.value = await fetchIndices()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '指数列表加载失败'
+    indiceError.value = message
+    globalMessage.error(message)
+  } finally {
+    indiceLoading.value = false
+  }
+}
+
+async function toggleIndice(name: string, checked: boolean): Promise<void> {
+  if (!checked) {
+    checkedIndices.value.delete(name)
+    checkedIndices.value = new Map(checkedIndices.value)
+    return
+  }
+
+  if (checkedIndices.value.has(name)) return
+  pendingIndices.value.add(name)
+  try {
+    const points = await fetchIndiceHistory(name)
+    checkedIndices.value.set(name, points)
+    checkedIndices.value = new Map(checkedIndices.value)
+  } catch (error) {
+    // 请求失败：全局错误提示并回滚勾选，不残留错误曲线
+    const message = error instanceof Error ? error.message : `${name}历史数据加载失败`
+    globalMessage.error(message)
+    checkedIndices.value.delete(name)
+    checkedIndices.value = new Map(checkedIndices.value)
+  } finally {
+    pendingIndices.value.delete(name)
+  }
+}
+
+onBeforeUnmount(() => {
+  checkedIndices.value.clear()
+  pendingIndices.value.clear()
+})
 </script>
 
 <template>
@@ -129,14 +200,7 @@ const option = computed(() => ({
     <div class="chart-card-header">
       <span class="chart-title">分组收益曲线</span>
       <div class="header-controls">
-        <NButton
-          size="small"
-          :type="showIndex ? 'primary' : 'default'"
-          secondary
-          @click="showIndex = !showIndex"
-        >
-          A股指数
-        </NButton>
+        <NButton size="small" secondary @click="openPicker">指数同框</NButton>
         <NButton class="sort-btn" size="tiny" quaternary @click="sortMode = (sortMode + 1) % 3">
           {{ sortLabel }}
         </NButton>
@@ -162,6 +226,30 @@ const option = computed(() => ({
       @keydown="handleChartKeydown"
       @mousemove="handleChartMousemove"
     />
+    <NModal
+      v-model:show="showPicker"
+      preset="card"
+      title="指数同框"
+      style="width: 360px"
+      :bordered="false"
+    >
+      <NSpace vertical size="small">
+        <div v-if="indiceLoading" class="indice-hint">加载中…</div>
+        <div v-else-if="indiceError" class="indice-hint indice-error">{{ indiceError }}</div>
+        <div v-else-if="indiceList.length === 0" class="indice-hint">暂无指数数据</div>
+        <template v-else>
+          <NCheckbox
+            v-for="name in indiceList"
+            :key="name"
+            :checked="checkedIndices.has(name)"
+            :loading="pendingIndices.has(name)"
+            @update:checked="(checked: boolean) => toggleIndice(name, checked)"
+          >
+            {{ name }}
+          </NCheckbox>
+        </template>
+      </NSpace>
+    </NModal>
   </div>
 </template>
 
@@ -200,5 +288,14 @@ const option = computed(() => ({
 .chart-body {
   width: 100%;
   height: 450px;
+}
+
+.indice-hint {
+  font-size: 13px;
+  color: rgb(118, 124, 130);
+}
+
+.indice-error {
+  color: #d03050;
 }
 </style>

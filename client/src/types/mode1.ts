@@ -69,3 +69,11 @@ export interface Mode1Data {
 export type ProfitMode = 1 | 2 | 3 | 4
 export type QuantileCount = 3 | 5 | 10
 export type ModeLoadStatus = 'idle' | 'loading' | 'success' | 'error'
+
+/** 指数历史收益点（GET /api/indice/history 返回项）。 */
+export interface IndicePoint {
+  /** 日期 YYYY-MM-DD */
+  datetime: string
+  /** 日收益率（等比后复权，小数） */
+  profit: number
+}

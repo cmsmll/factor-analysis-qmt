@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  IndicePoint,
   ModeFilter,
   ModeListItem,
   ModeRequest,
@@ -36,6 +37,22 @@ export async function fetchSectors(): Promise<string[]> {
 
 export async function fetchIndices(): Promise<string[]> {
   return fetchFilterOptions('/api/indice', '指数列表')
+}
+
+export async function fetchIndiceHistory(name: string): Promise<IndicePoint[]> {
+  const data = await request<IndicePoint[]>('/api/indice', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!Array.isArray(data)) {
+    throw new Error('指数历史数据格式不正确')
+  }
+
+  return data
 }
 
 async function fetchFilterOptions(path: string, label: string): Promise<string[]> {

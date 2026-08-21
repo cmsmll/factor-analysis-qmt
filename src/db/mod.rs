@@ -226,10 +226,7 @@ fn load_groups(path: &Path) -> io::Result<HashMap<String, Vec<String>>> {
 }
 
 /// 按日期范围过滤升序数据，返回 `None` 表示无交集。
-fn filter_range<T: RowDate>(rows: &[T], range: Option<(Date, Date)>) -> Option<Vec<T>>
-where
-    T: Clone,
-{
+fn filter_range<T: RowDate + Clone>(rows: &[T], range: Option<(Date, Date)>) -> Option<Vec<T>> {
     let Some((start, end)) = range else {
         return Some(rows.to_vec());
     };

@@ -1,4 +1,4 @@
-//! 成交量平滑异同移动平均（VMACD）中间量 diff/dea 因子。
+//! 成交量指数平滑异同移动平均因子（VMACD）。
 
 use std::sync::Arc;
 
@@ -16,25 +16,32 @@ use crate::{
     toolbox::VJson,
 };
 
-/// VMACD 中间量类型。
+/// VMACD 输出：diff / dea。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
 pub enum VmacdKind {
-    /// DIF = EMA12(volume) - EMA26(volume)
+    /// DIF（快慢 EMA 差）
     Diff,
-    /// DEA = EMA9(DIF)
+    /// DEA（DIF 的 EMA）
     Dea,
 }
 
 impl VmacdKind {
     fn label(self) -> &'static str {
         match self {
-            Self::Diff => "VMACD diff",
-            Self::Dea => "VMACD dea",
+            Self::Diff => "diff",
+            Self::Dea => "dea",
+        }
+    }
+
+    fn apply(self, macd: &mut MACD, volume: f64) -> Option<f64> {
+        match self {
+            Self::Diff => macd.dif(volume),
+            Self::Dea => macd.dea(volume),
         }
     }
 }
 
-/// 注册 VMACD diff/dea 因子（标准参数 12/26/9）。
+/// 注册 VMACD diff / dea 因子。
 pub async fn router() -> Router {
     for kind in [VmacdKind::Diff, VmacdKind::Dea] {
         MODE1.register(Arc::new(move |filter| Req::register(filter, kind))).await;
@@ -44,7 +51,7 @@ pub async fn router() -> Router {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
 pub struct Core {
-    /// 中间量类型。
+    /// 输出类型。
     pub kind: VmacdKind,
 }
 
@@ -87,7 +94,7 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
-/// 按 VMACD 中间量进行分位分析。
+/// 按 VMACD diff/dea 值进行分位分析。
 #[endpoint(
     tags("模式一"),
     operation_id = "analyze_vmacd",
@@ -111,7 +118,7 @@ fn vmacd_run(args: Req) -> Box<RawValue> {
     let df = DF.filter(&args.base.filter);
     let mut result = Mode1Data::new(
         args.hashcode(),
-        kind.label(),
+        format!("VMACD 中间变量{}", kind.label()),
         "DIF:=EMA(VOLUME,12)-EMA(VOLUME,26); DEA:=EMA(DIF,9)",
         super::LABEL,
         args.base.count,
@@ -123,14 +130,9 @@ fn vmacd_run(args: Req) -> Box<RawValue> {
         for (item, store) in df.list.iter().zip(store.iter_mut()) {
             if let Some((curr, profit)) = item.data(&index)
                 && curr.filter_st(args.base.filter_st)
+                && let Some(factor) = kind.apply(store, curr.volume)
             {
-                let factor = match kind {
-                    VmacdKind::Diff => store.dif(curr.volume),
-                    VmacdKind::Dea => store.dea(curr.volume),
-                };
-                if let Some(factor) = factor {
-                    items.push(Mode1Temp { factor, profit });
-                }
+                items.push(Mode1Temp { factor, profit });
             }
         }
         result.push(index.datetime, &mut items);

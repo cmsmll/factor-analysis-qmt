@@ -153,7 +153,7 @@ fn vol_stat_run(args: Req) -> Box<RawValue> {
     let df = DF.filter(&args.base.filter);
     let mut result = Mode1Data::new(
         args.hashcode(),
-        format!("{}", kind.label()),
+        kind.label(),
         format!("{}; N:={}", kind.label(), args.core.period.value),
         super::LABEL,
         args.base.count,

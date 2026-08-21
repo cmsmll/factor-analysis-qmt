@@ -128,7 +128,7 @@ fn wvad_run(args: Req) -> Box<RawValue> {
     let df = DF.filter(&args.base.filter);
     let mut result = Mode1Data::new(
         args.hashcode(),
-        format!("{}", kind.label()),
+        kind.label(),
         format!("WVAD:=Σ((C-O)/(H-L)*V); {}; N:={}", kind.label(), args.core.period.value),
         super::LABEL,
         args.base.count,

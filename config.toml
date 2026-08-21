@@ -22,6 +22,11 @@ name = "最近十年"
 start = "2016-01-01"
 end = "2025-12-31"
 
+[[period]]
+name = "迅投同期"
+start = "2023-10-10"
+end = "2024-09-30"
+
 [data]
 market = "data/market"
 metadata = "data/metadata.json"
