@@ -78,11 +78,11 @@ fn dividend_yield_run(args: Req) -> Box<RawValue> {
 
     for index in df.index_iter() {
         for item in &df.list {
-            if let Some((curr, profit)) = item.data(&index)
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
                 && curr.filter_st(args.base.filter_st)
             {
                 items.push(Mode1Temp {
-                    factor: curr.dividend_yield,
+                    factor: finance.dividend_yield,
                     profit,
                 });
             }

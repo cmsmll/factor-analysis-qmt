@@ -29,9 +29,6 @@ pub struct Market {
     pub amount: f64,
     /// 换手率（百分比）
     pub turnover: f64,
-    /// 股息率（百分比）
-    #[serde(default)]
-    pub dividend_yield: f64,
     /// 是否为ST
     pub is_st: bool,
 }
@@ -44,22 +41,25 @@ impl Market {
     }
 }
 
-/// 财务数据（合并进行情 JSON 行）。
-///
-/// 新数据源中财务字段与行情合并于同一行，仅 `total_market`（总市值）被因子使用。
+/// 新数据源中财务字段与行情合并于同一行，`total_market`（总市值）与 `dividend_yield`（股息率）被因子使用。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finance {
     /// 总市值（单位：元）
     pub total_market: f64,
+    /// 股息率（百分比）
+    #[serde(default)]
+    pub dividend_yield: f64,
 }
 
-/// 单交易日数据：行情 + 财务。
+/// 单交易日数据：行情 + 财务 + 未来收益。
 #[derive(Debug, Clone)]
 pub struct Bar {
     /// 行情数据
     pub market: Market,
     /// 财务数据
     pub finance: Finance,
+    /// 未来收益与当前换手率 `[p1, p2, p3, p4, 换手率]`；尾部缺少未来数据时收益置 0。
+    pub profit: [f64; 5],
 }
 
 impl Bar {
@@ -73,6 +73,11 @@ impl Bar {
     #[inline]
     pub fn total_market(&self) -> f64 {
         self.finance.total_market
+    }
+    /// 返回当日股息率（百分比）。
+    #[inline]
+    pub fn dividend_yield(&self) -> f64 {
+        self.finance.dividend_yield
     }
 }
 
@@ -91,7 +96,6 @@ mod tests {
             volume: 100.0,
             amount: 1_000.0,
             turnover: 0.02,
-            dividend_yield: 0.0,
             is_st,
         }
     }
@@ -122,16 +126,17 @@ mod tests {
         assert_eq!(row.turnover, 0.02);
     }
 
-    // 测试 Bar 聚合行情与财务，filter_st 与 total_market 便捷方法正确。
     #[test]
     fn bar_aggregates_market_and_finance() {
         let bar = Bar {
             market: market("2025-01-01", false),
-            finance: Finance { total_market: 1_000.0 },
+            finance: Finance { total_market: 1_000.0, dividend_yield: 0.5 },
+            profit: [0.0; 5],
         };
 
         assert!(bar.filter_st(true));
         assert_eq!(bar.total_market(), 1_000.0);
+        assert_eq!(bar.dividend_yield(), 0.5);
         assert_eq!(bar.market.close, 11.0);
     }
 }

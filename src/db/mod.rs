@@ -64,12 +64,13 @@ impl MarketRow {
                 volume: self.volume,
                 amount: self.amount,
                 turnover: self.turnover,
-                dividend_yield: self.dividend_yield,
                 is_st: self.is_st,
             },
             finance: Finance {
                 total_market: self.total_market,
+                dividend_yield: self.dividend_yield,
             },
+            profit: [0.0; 5],
         }
     }
 }
@@ -156,26 +157,12 @@ impl DataFrameDb {
 
         for (meta, bars) in self.metadata.iter().zip(self.bar.iter()) {
             // 范围过滤。
-            let Some(bars) = filter_range(bars, range) else {
+            let Some(mut bars) = filter_range(bars, range) else {
                 continue;
             };
 
-            // 计算前向收益（需要至少 3 条数据）。
-            let profit = bars
-                .windows(3)
-                .map(|w| {
-                    let curr = &w[0].market;
-                    let next1 = &w[1].market;
-                    let next2 = &w[2].market;
-                    [
-                        (next1.close - curr.close) / curr.close,
-                        (next1.close - next1.open) / next1.open,
-                        (next2.open - next1.open) / next1.open,
-                        (next2.close - next1.open) / next1.open,
-                        curr.turnover,
-                    ]
-                })
-                .collect();
+            // 计算每根 K 线的前向收益与换手率；尾部缺少未来数据时收益置 0。
+            compute_profit(&mut bars);
 
             for bar in &bars {
                 index_table.insert(bar.market.datetime);
@@ -195,7 +182,6 @@ impl DataFrameDb {
                 metadata: (**meta).clone(),
                 table,
                 bar: Arc::new(bars),
-                profit,
             }));
         }
 
@@ -210,6 +196,30 @@ impl DataFrameDb {
             sector: self.sector.clone(),
             indice: self.indice.clone(),
         })
+    }
+}
+
+/// 计算每根 K 线的前向收益与换手率。
+///
+/// 第 `i` 根 K 线的前向收益依赖 `i+1`、`i+2` 两根；尾部两根没有未来数据，
+/// 收益置 0，换手率使用当日值。
+fn compute_profit(bars: &mut [Bar]) {
+    for index in 0..bars.len() {
+        let profit = if index + 2 < bars.len() {
+            let curr = &bars[index].market;
+            let next1 = &bars[index + 1].market;
+            let next2 = &bars[index + 2].market;
+            [
+                (next1.close - curr.close) / curr.close,
+                (next1.close - next1.open) / next1.open,
+                (next2.open - next1.open) / next1.open,
+                (next2.close - next1.open) / next1.open,
+                curr.turnover,
+            ]
+        } else {
+            [0.0, 0.0, 0.0, 0.0, bars[index].market.turnover]
+        };
+        bars[index].profit = profit;
     }
 }
 
@@ -327,13 +337,16 @@ mod tests {
         assert_eq!(all_frame.list[0].bar[0].market.close, 10.0);
 
         // 收益：close 10/11/12，open 相同，前向收益为 0.1/0.0/1/11/1/11，换手率 0.02。
-        assert_eq!(all_frame.list[0].profit.len(), 1);
-        let [p1, p2, p3, p4, tr] = all_frame.list[0].profit[0];
+        let [p1, p2, p3, p4, tr] = all_frame.list[0].bar[0].profit;
         assert!((p1 - 0.1).abs() < 1e-12);
         assert!((p2 - 0.0).abs() < 1e-12);
         assert!((p3 - 1.0 / 11.0).abs() < 1e-12);
         assert!((p4 - 1.0 / 11.0).abs() < 1e-12);
         assert!((tr - 0.02).abs() < 1e-12);
+
+        // 尾部两根缺少未来数据：收益置 0，换手率用当日值。
+        assert_eq!(all_frame.list[0].bar[1].profit, [0.0, 0.0, 0.0, 0.0, 0.02]);
+        assert_eq!(all_frame.list[0].bar[2].profit, [0.0, 0.0, 0.0, 0.0, 0.02]);
 
         // 范围查询。
         assert_eq!(frame.list[0].bar.len(), 3);
@@ -360,7 +373,9 @@ mod tests {
         assert_eq!(frame.end, date(3));
         assert_eq!(frame.list[0].bar.len(), 2);
         assert_eq!(frame.list[0].bar[0].market.datetime.to_string(), "2025-01-02");
-        assert!(frame.list[0].profit.is_empty());
+        // 范围内仅 2 根：都缺未来数据，收益置 0、换手率用当日值。
+        assert_eq!(frame.list[0].bar[0].profit, [0.0, 0.0, 0.0, 0.0, 0.02]);
+        assert_eq!(frame.list[0].bar[1].profit, [0.0, 0.0, 0.0, 0.0, 0.02]);
     }
 
     // 测试行情文件缺失时跳过该合约，无任何数据时查询返回错误。

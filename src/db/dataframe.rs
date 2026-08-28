@@ -98,12 +98,10 @@ impl Index {
 pub struct Contract {
     pub start: Date,
     pub end: Date,
-    /// 逐日行情与财务数据
+    /// 逐日行情、财务与未来收益数据
     pub bar: Arc<Vec<Bar>>,
     /// 合约元数据
     pub metadata: Metadata,
-    /// 未来收益情况和换手率
-    pub profit: Vec<[f64; 5]>,
     /// 时间表
     pub table: FxHashMap<Date, usize>,
 }
@@ -117,7 +115,7 @@ impl Contract {
         let index = self.index(i)?;
         // 时间表能找到索引必然在范围内
         let bar = unsafe { self.bar.get_unchecked(index) };
-        Some((&bar.market, self.profit.get(index)?))
+        Some((&bar.market, &bar.profit))
     }
 
     pub fn before(&self, index: &Index, days: usize) -> Option<&Market> {
@@ -127,19 +125,19 @@ impl Contract {
 
     pub fn before_and_profit(&self, index: &Index, days: usize) -> Option<(&Market, &[f64; 5])> {
         let index = self.index(index)?.checked_sub(days)?;
-        Some((&self.bar.get(index)?.market, self.profit.get(index)?))
+        self.bar.get(index).map(|bar| (&bar.market, &bar.profit))
     }
 
     pub fn after(&self, index: &Index, days: usize) -> Option<(&Market, &[f64; 5])> {
         let index = self.index(index)?.checked_add(days)?;
-        Some((&self.bar.get(index)?.market, self.profit.get(index)?))
+        self.bar.get(index).map(|bar| (&bar.market, &bar.profit))
     }
 
     pub fn data_and_finance(&self, i: &Index) -> Option<(&Market, &[f64; 5], &Finance)> {
         let index = self.index(i)?;
         // 时间表能找到索引必然在范围内
         let bar = unsafe { self.bar.get_unchecked(index) };
-        Some((&bar.market, self.profit.get(index)?, &bar.finance))
+        Some((&bar.market, &bar.profit, &bar.finance))
     }
 }
 
@@ -167,7 +165,6 @@ mod tests {
             },
             table: FxHashMap::default(),
             bar: Arc::new(Vec::new()),
-            profit: Vec::new(),
         })
     }
 
@@ -216,14 +213,13 @@ mod tests {
                         volume: 0.0,
                         amount: 0.0,
                         turnover: 0.0,
-                        dividend_yield: 0.0,
                         is_st: false,
                     },
-                    finance: Finance { total_market: 0.0 },
+                    finance: Finance { total_market: 0.0, dividend_yield: 0.0 },
+                    profit: [0.1, 0.2, 0.3, 0.4, 0.5],
                 })
                 .collect(),
         );
-        contract.profit = vec![[0.1, 0.2, 0.3, 0.4, 0.5]; 3];
         contract.table = contract
             .bar
             .iter()
@@ -266,12 +262,11 @@ mod tests {
                 volume: 0.0,
                 amount: 0.0,
                 turnover: 0.0,
-                dividend_yield: 0.0,
                 is_st: false,
             },
-            finance: Finance { total_market: 2_000.0 },
+            finance: Finance { total_market: 2_000.0, dividend_yield: 0.0 },
+            profit: [0.1, 0.2, 0.3, 0.4, 0.5],
         }]);
-        contract.profit = vec![[0.1, 0.2, 0.3, 0.4, 0.5]];
         contract.table = contract
             .bar
             .iter()
