@@ -4,6 +4,7 @@
 
 pub mod indice_history;
 pub mod mode1;
+pub mod mode2;
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -29,11 +30,11 @@ pub async fn router() -> Router {
     Router::new()
         .push(
             Router::with_path("api")
-            .push(Router::with_path("indice").get(indice).post(indice_history::indice_history))
-            .push(Router::with_path("sector").get(sector))
-            .push(Router::with_path("period").get(period))
-            .push(Router::with_path("test").get(test))
-            .push(mode1::mode1_router().await)
+                .push(Router::with_path("indice").get(indice).post(indice_history::indice_history))
+                .push(Router::with_path("sector").get(sector))
+                .push(Router::with_path("period").get(period))
+                .push(Router::with_path("test").get(test))
+                .push(mode1::mode1_router().await),
         )
         .get(hello)
 }
