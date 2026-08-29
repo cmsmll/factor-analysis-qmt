@@ -21,33 +21,26 @@ defineOptions({ name: 'KanbanBoard' })
 const route = useRoute()
 const router = useRouter()
 
-// ── 看板列表与切换（页首标题/渐变随看板，URL query 同步）──
+// ── 看板由路由决定：/mode1 = 模式一（首块），/mode2 = 模式二（末块）──
 const kanbanList = [
   {
     title: '因子看盘可视化显示',
     subtitle: '多因子量化分析平台',
-    key: 'factor',
     gradient: 'linear-gradient(135deg, #1a237e 0%, #283593 40%, #3949ab 100%)',
   },
   {
     title: '因子选股可视化显示',
     subtitle: '微盘股 · 市值最小400只 → 收盘价最低80只',
-    key: 'microcap',
     gradient: 'linear-gradient(135deg, #1b5e20 0%, #2e7d32 40%, #43a047 100%)',
   },
 ]
-const boardIndex = ref(getKanbanIndex(route.query.kanban))
-const board = computed(() => kanbanList[boardIndex.value]!)
+const isMode2 = computed(() => route.path.startsWith('/mode2'))
+const board = computed(() => kanbanList[isMode2.value ? 1 : 0]!)
 
-function getKanbanIndex(kanban: unknown): number {
-  const key = Array.isArray(kanban) ? kanban[0] : kanban
-  const index = kanbanList.findIndex((item) => item.key === key)
-  return index >= 0 ? index : 0
-}
-
+// 循环切换：/mode1 ↔ /mode2
 function switchKanban(step: number) {
-  boardIndex.value = (boardIndex.value + step + kanbanList.length) % kanbanList.length
-  void router.replace({ query: { ...route.query, kanban: board.value.key } })
+  const index = (Number(isMode2.value) + step + 2) % 2
+  void router.push(index === 1 ? '/mode2' : '/mode1')
 }
 
 // ── 固定过滤区（页首下方常驻，模式一/模式二共用；数据各自隔离）──
@@ -141,12 +134,14 @@ async function loadPeriod(name: string) {
   const period = periods.value.find((item) => item.name === name)
   if (!period) return
   applyPeriodToFilter(period)
-  try {
-    await globalLoading.run(async () => {
-      await reloadList()
-    })
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '获取模式一列表失败'))
+  if (!isMode2.value) {
+    try {
+      await globalLoading.run(async () => {
+        await reloadList()
+      })
+    } catch (error) {
+      globalMessage.error(errorMessage(error, '获取模式一列表失败'))
+    }
   }
   syncMode2()
 }
@@ -228,18 +223,20 @@ async function initializeKanban(): Promise<void> {
         filters.period = matchingPeriod?.name || period.name
         settingInitialPeriod = false
         Object.assign(listFilter, cachedFilter)
-        await reloadList()
+        if (!isMode2.value) await reloadList()
       } else {
         settingInitialPeriod = true
         filters.period = period.name
         settingInitialPeriod = false
         resetListFilter(period)
-        await reloadList()
+        if (!isMode2.value) await reloadList()
       }
     })
     syncMode2()
   } catch (error) {
-    globalMessage.error(errorMessage(error, '获取模式一列表失败'))
+    if (!isMode2.value) {
+      globalMessage.error(errorMessage(error, '获取模式一列表失败'))
+    }
   }
 }
 
@@ -260,7 +257,7 @@ onMounted(() => void initializeKanban())
     <!-- 固定过滤区：切换看板时保持不动 -->
     <div class="filter-bar">
       <NForm layout="inline" label-placement="left" size="small">
-        <NFormItem v-if="board.key === 'factor'" label="因子搜索">
+        <NFormItem v-if="!isMode2" label="因子搜索">
           <NInput
             v-model:value="searchKeyword"
             placeholder="输入因子名称搜索"
@@ -295,7 +292,7 @@ onMounted(() => void initializeKanban())
             style="width: 260px"
           />
         </NFormItem>
-        <NFormItem v-if="board.key === 'factor'" label="" class="reload-form-item">
+        <NFormItem v-if="!isMode2" label="" class="reload-form-item">
           <NButton
             type="primary"
             color="#409eff"
@@ -312,16 +309,16 @@ onMounted(() => void initializeKanban())
       </NForm>
     </div>
 
-    <!-- 表格区域：仅此处随看板切换 -->
+    <!-- 表格区域：按路由显示对应看板 -->
     <div class="kanban-content">
       <FactorDashboard
-        v-show="board.key === 'factor'"
+        v-show="!isMode2"
         :search-keyword="searchKeyword"
         :profit-mode="filters.profitMode"
         :revision="listRevision"
         class="kanban-board"
       />
-      <Mode2Microcap v-show="board.key === 'microcap'" class="kanban-board" />
+      <Mode2Microcap v-show="isMode2" class="kanban-board" />
     </div>
   </div>
 </template>

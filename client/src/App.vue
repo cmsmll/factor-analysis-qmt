@@ -9,9 +9,17 @@ import GlobalMessage from '@/components/common/GlobalMessage.vue'
 <template>
   <RouterView v-slot="{ Component, route }">
     <KeepAlive include="KanbanBoard">
-      <component :is="Component" v-if="route.name === 'mode1'" />
+      <component
+        :is="Component"
+        v-if="route.name === 'mode1' || route.name === 'mode2'"
+        :key="route.name"
+      />
     </KeepAlive>
-    <component :is="Component" v-if="route.name !== 'mode1'" :key="route.fullPath" />
+    <component
+      :is="Component"
+      v-if="route.name !== 'mode1' && route.name !== 'mode2'"
+      :key="route.fullPath"
+    />
   </RouterView>
   <GlobalFilterSelector />
   <GlobalLoading />
