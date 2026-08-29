@@ -14,6 +14,7 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 
+import KanbanHeader from '@/components/common/KanbanHeader.vue'
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchIndices, fetchSectors } from '@/api/mode1'
 import { useGlobalLoadingStore } from '@/stores/globalLoading'
@@ -258,8 +259,8 @@ function cloneModeFilter(filter: ModeFilter): ModeFilter {
 }
 
 function switchKanban(step: number) {
-  // 保留旧版切换按钮，等待后续看板接入。
-  void step
+  // 看板方向切换：模式一（当前，首块）→ 模式二（因子选股）。
+  if (step > 0) void router.push({ name: 'mode2' })
 }
 
 function handleSorterChange(
@@ -481,41 +482,13 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
 <template>
   <NConfigProvider>
     <div class="factorKanban-layout">
-      <!-- 页首 -->
-      <header class="page-header">
-        <NButton text circle class="header-switch-btn" @click="switchKanban(-1)">
-          <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-              <path
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-                d="M328 112L184 256l144 144"
-              ></path>
-            </svg>
-          </template>
-        </NButton>
-        <div class="header-content">
-          <h1 class="page-title">因子看盘可视化显示</h1>
-          <p class="page-subtitle">多因子量化分析平台</p>
-        </div>
-        <NButton text circle class="header-switch-btn" @click="switchKanban(1)">
-          <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-              <path
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-                d="M184 112l144 144-144 144"
-              ></path>
-            </svg>
-          </template>
-        </NButton>
-      </header>
+      <!-- 页首：看板方向切换（左：上一看板，右：下一看板） -->
+      <KanbanHeader
+        title="因子看盘可视化显示"
+        subtitle="多因子量化分析平台"
+        :prev-disabled="true"
+        @next="switchKanban(1)"
+      />
 
       <!-- 筛选区域 -->
       <div class="filter-bar">
@@ -620,81 +593,6 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
   height: 100%;
   padding: 32px;
   gap: 24px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: linear-gradient(135deg, #1a237e 0%, #283593 40%, #3949ab 100%);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(26, 35, 126, 0.25);
-  overflow: hidden;
-  padding: 28px 32px;
-}
-
-.header-switch-btn {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  color: rgba(255, 255, 255, 0.88);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.header-switch-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.header-switch-btn svg {
-  width: 22px;
-  height: 22px;
-}
-
-.header-content {
-  flex: 1;
-  text-align: center;
-  position: relative;
-}
-
-.header-content::after {
-  content: '';
-  position: absolute;
-  left: -80px;
-  top: -50px;
-  width: 140px;
-  height: 140px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.04);
-  pointer-events: none;
-}
-
-.header-content::before {
-  content: '';
-  position: absolute;
-  right: -60px;
-  bottom: -40px;
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.03);
-  pointer-events: none;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 2px;
-  position: relative;
-}
-
-.page-subtitle {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.65);
-  letter-spacing: 4px;
 }
 
 .page-footer {
