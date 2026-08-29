@@ -50,9 +50,11 @@ const globalLoading = useGlobalLoadingStore()
 const globalMessage = useGlobalMessageStore()
 const filterSelector = useGlobalFilterSelectorStore()
 const { periods, periodLoading, listLoading, listError, periodError } = storeToRefs(store)
+const { statsLoading: mode2StatsLoading } = storeToRefs(mode2Store)
 const { visible: globalLoadingVisible } = storeToRefs(globalLoading)
 
 const searchKeyword = ref('')
+const strategyKeyword = ref('')
 let settingInitialPeriod = false
 const listFilter = reactive<ModeFilter>({
   start: '',
@@ -108,6 +110,15 @@ async function reloadDashboard(): Promise<void> {
   } catch (error) {
     globalMessage.error(errorMessage(error, '获取模式一列表失败'))
   }
+}
+
+// 重载：模式一刷新因子列表，模式二强制刷新策略列表统计（绕过缓存）
+function handleReload(): void {
+  if (isMode2.value) {
+    void mode2Store.loadListStats(true)
+    return
+  }
+  void reloadDashboard()
 }
 
 function resetListFilter(period: Period): void {
@@ -276,6 +287,14 @@ onMounted(() => void initializeKanban())
             style="width: 180px"
           />
         </NFormItem>
+        <NFormItem v-else label="策略搜索">
+          <NInput
+            v-model:value="strategyKeyword"
+            placeholder="输入策略名称搜索"
+            clearable
+            style="width: 180px"
+          />
+        </NFormItem>
         <NFormItem label="行业板块">
           <NButton size="small" class="selector-button" @click="selectSectors">
             {{ listFilter.sector.length ? `已选 ${listFilter.sector.length} 项` : '全部行业' }}
@@ -303,15 +322,15 @@ onMounted(() => void initializeKanban())
             style="width: 260px"
           />
         </NFormItem>
-        <NFormItem v-if="!isMode2" label="" class="reload-form-item">
+        <NFormItem label="" class="reload-form-item">
           <NButton
             type="primary"
             color="#409eff"
             size="small"
             class="reload-btn"
-            :loading="listLoading && !globalLoadingVisible"
+            :loading="(isMode2 ? mode2StatsLoading : listLoading) && !globalLoadingVisible"
             :disabled="periodLoading || listLoading"
-            @click="reloadDashboard"
+            @click="handleReload"
           >
             <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
             重载
@@ -329,7 +348,7 @@ onMounted(() => void initializeKanban())
         :revision="listRevision"
         class="kanban-board"
       />
-      <Mode2Microcap v-show="isMode2" class="kanban-board" />
+      <Mode2Microcap v-show="isMode2" :strategy-keyword="strategyKeyword" class="kanban-board" />
     </div>
   </div>
 </template>

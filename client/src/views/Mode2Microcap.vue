@@ -24,6 +24,11 @@ import type { Mode2History, Mode2Strategy, StockItem } from '@/types/mode2'
 
 defineOptions({ name: 'Mode2Microcap' })
 
+/** 策略搜索关键词（由看板固定过滤区下发，对标模式一的因子搜索）。 */
+const props = defineProps<{
+  strategyKeyword?: string
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const store = useMode2Store()
@@ -81,12 +86,15 @@ interface StrategyRow {
   data: Mode2History | undefined
 }
 
-const listRows = computed<StrategyRow[]>(() =>
-  MODE2_STRATEGIES.map((strategy) => ({
+const listRows = computed<StrategyRow[]>(() => {
+  const keyword = (props.strategyKeyword ?? '').trim().toLowerCase()
+  return MODE2_STRATEGIES.filter(
+    (strategy) => !keyword || strategy.name.toLowerCase().includes(keyword),
+  ).map((strategy) => ({
     strategy,
     data: strategyData.value[strategy.key],
-  })),
-)
+  }))
+})
 
 function avgCount(data: Mode2History | undefined): number {
   const counts = data?.count.slice(1) ?? []

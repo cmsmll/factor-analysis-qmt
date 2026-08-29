@@ -151,17 +151,18 @@ export const useMode2Store = defineStore('mode2', () => {
   }
 
   /** 列表数据：逐策略调 history（当前股票池 + 收益模式），供列表统计与平均入选数使用。 */
-  async function loadListStats(): Promise<void> {
+  async function loadListStats(force = false): Promise<void> {
     if (!base.start || !base.end) return
     statsLoading.value = true
     try {
       const results = await Promise.all(
         MODE2_STRATEGIES.map(async (strategy) => {
-          const data = await fetchHistoryCached({
+          const req = {
             stages: strategy.stages,
             profit_mode: profitMode.value,
             base: cloneBase(base),
-          })
+          }
+          const data = force ? await fetchMode2History(req) : await fetchHistoryCached(req)
           return [strategy.key, data] as const
         }),
       )
