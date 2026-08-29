@@ -105,6 +105,13 @@ function rateCell(value: number | undefined) {
 
 const strategyColumns: DataTableColumns<StrategyRow> = [
   {
+    title: '序号',
+    key: 'index',
+    align: 'center',
+    width: 60,
+    render: (_row, index) => index + 1,
+  },
+  {
     title: '因子选股名称',
     key: 'name',
     align: 'center',
@@ -162,8 +169,8 @@ const strategyColumns: DataTableColumns<StrategyRow> = [
     key: 'avg_count',
     align: 'center',
     sorter: true,
-    width: 100,
-    render: (row) => (row.data ? avgCount(row.data).toFixed(2) : '--'),
+    width: 130,
+    render: (row) => (row.data ? Math.round(avgCount(row.data)).toString() : '--'),
   },
 ]
 
@@ -224,21 +231,19 @@ const stockColumns: DataTableColumns<StockItem> = [
 
 <template>
   <div class="microcap-layout">
-    <!-- 列表视图（初始） -->
+    <!-- 列表视图（初始）：与模式一列表一致，直接渲染表格 -->
     <template v-if="view === 'list'">
-      <NCard title="因子选股" size="small" class="list-card">
-        <NSpin :show="statsLoading">
-          <NDataTable
-            :columns="strategyColumns"
-            :data="listRows"
-            :row-key="(row) => row.strategy.key"
-            :loading="statsLoading"
-            size="small"
-            class="strategy-table"
-          />
-          <NEmpty v-if="!statsLoading && listRows.length === 0" description="暂无选股策略" class="empty-block" />
-        </NSpin>
-      </NCard>
+      <NSpin :show="statsLoading">
+        <NDataTable
+          :columns="strategyColumns"
+          :data="listRows"
+          :row-key="(row) => row.strategy.key"
+          :loading="statsLoading"
+          size="small"
+          class="strategy-table"
+        />
+        <NEmpty v-if="!statsLoading && listRows.length === 0" description="暂无选股策略" class="empty-block" />
+      </NSpin>
     </template>
 
     <!-- 预览视图 -->
@@ -256,7 +261,7 @@ const stockColumns: DataTableColumns<StockItem> = [
               <NStatistic label="年化收益" :value="(stats?.annualized ?? 0) * 100" precision="2" suffix="%" />
               <NStatistic label="最大回撤" :value="(stats?.max_drawdown ?? 0) * 100" precision="2" suffix="%" />
               <NStatistic label="胜率" :value="(stats?.win_rate ?? 0) * 100" precision="2" suffix="%" />
-              <NStatistic label="平均入选数" :value="previewAvgCount" precision="2" />
+              <NStatistic label="平均入选数" :value="previewAvgCount" precision="0" />
             </div>
           </NCard>
           <div class="chart-grid">
@@ -324,6 +329,12 @@ const stockColumns: DataTableColumns<StockItem> = [
   gap: 12px;
   height: 100%;
   overflow-y: auto;
+}
+
+.strategy-table {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .preview-toolbar {
