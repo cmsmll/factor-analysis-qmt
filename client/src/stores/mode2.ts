@@ -64,6 +64,27 @@ export const useMode2Store = defineStore('mode2', () => {
   let selectRequestVersion = 0
   // 名单缓存：键 = 完整请求（含股票池与日期），池变更后自动失效
   const selectCache = new Map<string, StockItem[]>()
+  // 回测结果缓存（与 mode1 按 args 哈希 id 缓存一致）：键 = 完整请求；并发去重
+  const historyCache = new Map<string, Mode2History>()
+  const historyPending = new Map<string, Promise<Mode2History>>()
+
+  /** 回测结果缓存读取：命中直接返回，未命中发起请求并去重。 */
+  function fetchHistoryCached(req: HistoryParams): Promise<Mode2History> {
+    const key = JSON.stringify(req)
+    const cached = historyCache.get(key)
+    if (cached) return Promise.resolve(cached)
+    const pending = historyPending.get(key)
+    if (pending) return pending
+    const task = fetchMode2History(req).then((data) => {
+      historyCache.set(key, data)
+      return data
+    })
+    historyPending.set(key, task)
+    void task.finally(() => {
+      if (historyPending.get(key) === task) historyPending.delete(key)
+    })
+    return task
+  }
 
   const currentStrategy = computed(
     () => MODE2_STRATEGIES.find((strategy) => strategy.key === currentStrategyKey.value) ?? MODE2_STRATEGIES[0]!,
@@ -116,11 +137,10 @@ export const useMode2Store = defineStore('mode2', () => {
     await Promise.all([loadListStats(), loadHistory()])
   }
 
-  /** 选择预览策略：加载该策略的回测与名单（首次或策略变更时）。 */
+  /** 选择预览策略：加载该策略的回测与名单（结果命中缓存则不重新请求）。 */
   async function selectStrategy(key: string): Promise<void> {
-    const changed = currentStrategyKey.value !== key
     currentStrategyKey.value = key
-    if (changed || !history.value) await loadHistory()
+    await loadHistory()
   }
 
   /** 预览页 ST/北证过滤切换：刷新列表统计与当前策略回测/名单。 */
@@ -137,7 +157,7 @@ export const useMode2Store = defineStore('mode2', () => {
     try {
       const results = await Promise.all(
         MODE2_STRATEGIES.map(async (strategy) => {
-          const data = await fetchMode2History({
+          const data = await fetchHistoryCached({
             stages: strategy.stages,
             profit_mode: profitMode.value,
             base: cloneBase(base),
@@ -153,14 +173,14 @@ export const useMode2Store = defineStore('mode2', () => {
     }
   }
 
-  /** 区间回测；股票池变更后同步刷新当前日期名单。 */
+  /** 区间回测；股票池变更后同步刷新当前日期名单（结果命中缓存则不重新请求）。 */
   async function loadHistory(): Promise<void> {
     if (!base.start || !base.end) return
     const version = ++historyRequestVersion
     historyLoading.value = true
     historyError.value = ''
     try {
-      const data = await fetchMode2History(buildHistoryReq())
+      const data = await fetchHistoryCached(buildHistoryReq())
       if (historyRequestVersion !== version) return
       history.value = data
       const dates = uniqueDates(data.datetime)

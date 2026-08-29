@@ -22,7 +22,7 @@ const router = createRouter({
       component: KanbanBoard,
     },
     {
-      path: '/mode2/:key',
+      path: '/mode2/:id',
       name: 'mode2-preview',
       component: KanbanBoard,
     },

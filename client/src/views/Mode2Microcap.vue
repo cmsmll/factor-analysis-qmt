@@ -44,17 +44,17 @@ const {
 // 两级视图由路由决定：列表（/mode2）→ 预览（/mode2/:key，刷新/直达均可恢复）
 const view = computed(() => (route.name === 'mode2-preview' ? 'preview' : 'list'))
 
-// 预览路由参数 → 同步当前策略并加载其回测/名单
+// 预览路由参数（策略 id）→ 同步当前策略并加载其回测/名单（结果按 id 缓存）
 watch(
-  () => route.params.key,
-  (key) => {
-    if (!key) return
-    const strategyKey = String(key)
-    if (!MODE2_STRATEGIES.some((strategy) => strategy.key === strategyKey)) {
+  () => route.params.id,
+  (id) => {
+    if (!id) return
+    const strategyId = String(id)
+    if (!MODE2_STRATEGIES.some((strategy) => strategy.key === strategyId)) {
       void router.replace('/mode2')
       return
     }
-    void store.selectStrategy(strategyKey)
+    void store.selectStrategy(strategyId)
   },
   { immediate: true },
 )

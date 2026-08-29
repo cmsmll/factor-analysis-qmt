@@ -197,10 +197,17 @@ watch(
   { flush: 'sync' },
 )
 
-// 收益模式变更 → 模式一表格列（props 传导）与模式二回测/列表统计同步重算
+const PROFIT_MODE_KEY = 'mode2-profit-mode'
+
+// 收益模式变更 → 持久化 + 模式一表格列（props 传导）与模式二回测/列表统计同步重算
 watch(
   () => filters.profitMode,
   (mode) => {
+    try {
+      localStorage.setItem(PROFIT_MODE_KEY, String(mode))
+    } catch {
+      // localStorage full or unavailable
+    }
     void mode2Store.applyProfitMode(mode as 1 | 2 | 3 | 4)
   },
 )
@@ -232,6 +239,10 @@ async function initializeKanban(): Promise<void> {
         if (!isMode2.value) await reloadList()
       }
     })
+    const savedMode = Number(localStorage.getItem(PROFIT_MODE_KEY) ?? '')
+    if (Number.isInteger(savedMode) && savedMode >= 1 && savedMode <= 4) {
+      filters.profitMode = savedMode as ProfitMode
+    }
     syncMode2()
   } catch (error) {
     if (!isMode2.value) {
