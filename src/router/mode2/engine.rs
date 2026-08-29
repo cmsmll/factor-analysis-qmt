@@ -97,21 +97,28 @@ fn collect_bars<'a>(
     (bars, meta)
 }
 
-/// 构造选股算子。
-fn operator_of(args: &Req) -> Operator {
-    Operator {
-        field: args.field,
-        filter: args.filter,
-        select: Some(args.select),
-        direction: args.direction,
-    }
+/// 构造选股算子链（stages 顺序执行）。
+fn operators_of(args: &Req) -> Vec<Operator> {
+    args.stages
+        .iter()
+        .map(|stage| Operator {
+            field: stage.field,
+            filter: stage.filter,
+            select: Some(stage.select),
+            direction: stage.direction,
+        })
+        .collect()
 }
 
-/// 单日选股：按因子排序 → 过滤 → 截取前 N，返回名单。
+/// 单日选股：按算子链（排序 → 过滤 → 截取）顺序执行，返回名单。
 pub fn select_at(frame: &DataFrame, args: &Req, date: Date) -> Vec<StockItem> {
     let (mut bars, meta) = collect_bars(frame, args, date);
-    let operator = operator_of(args);
-    let selected = operator.run(&mut bars);
+    let operators = operators_of(args);
+    let last_operator = operators.last().expect("算子链至少 1 段");
+    let mut selected: &mut [&Bar] = &mut bars;
+    for operator in &operators {
+        selected = operator.run(selected);
+    }
 
     selected
         .iter()
@@ -125,7 +132,7 @@ pub fn select_at(frame: &DataFrame, args: &Req, date: Date) -> Vec<StockItem> {
             StockItem {
                 code: metadata.code.to_string(),
                 name: metadata.name.to_string(),
-                factor: operator.get_field(bar),
+                factor: last_operator.get_field(bar),
                 change_percent: market.change_percent,
                 is_st: market.is_st,
                 exchange: metadata.exchange.clone(),
@@ -176,8 +183,11 @@ pub fn history(frame: &DataFrame, args: &Req) -> Mode2History {
             bars.iter().map(|bar| bar.profit[mode]).sum::<f64>() / bars.len() as f64
         };
 
-        let operator = operator_of(args);
-        let selected = operator.run(&mut bars);
+        let operators = operators_of(args);
+        let mut selected: &mut [&Bar] = &mut bars;
+        for operator in &operators {
+            selected = operator.run(selected);
+        }
         let mut codes = Vec::with_capacity(selected.len());
         let mut sum = 0.0_f64;
         for bar in selected {
@@ -264,7 +274,7 @@ mod tests {
         args::Filter as PoolFilter,
         db::{Bar, Contract, Finance, Market, Metadata},
         router::mode2::{
-            Req,
+            Req, Stage,
             operator::{Direction, Field, Filter as OpFilter},
         },
     };
@@ -402,11 +412,17 @@ mod tests {
     }
 
     fn req(field: Field, direction: Direction, filter: OpFilter, select: usize) -> Req {
-        Req {
+        chain_req(vec![Stage {
             field,
             direction,
             filter,
             select,
+        }])
+    }
+
+    fn chain_req(stages: Vec<Stage>) -> Req {
+        Req {
+            stages,
             profit_mode: 1,
             base: PoolFilter::new(date(1), date(3)),
         }
@@ -529,6 +545,55 @@ mod tests {
         assert!((result.portfolio[2] - result.portfolio[1]).abs() < 1e-12);
         assert!((result.benchmark[2] - result.benchmark[1]).abs() < 1e-12);
         // day3 尾部 profit=0：继续持平
+        assert!((result.portfolio[3] - result.portfolio[2]).abs() < 1e-12);
+    }
+
+    // 算子链：市值最小 2 只 → 其中收盘价最低 1 只（微盘股语义小样本）。
+    #[test]
+    fn select_at_applies_stage_chain() {
+        let frame = frame();
+        let args = chain_req(vec![
+            Stage {
+                field: Field::TotalMarket,
+                direction: Direction::Asc,
+                filter: OpFilter::None,
+                select: 2,
+            },
+            Stage {
+                field: Field::Close,
+                direction: Direction::Asc,
+                filter: OpFilter::None,
+                select: 1,
+            },
+        ]);
+        // day1：市值最小 2 只 = A(10)/B(20)，其中收盘最低 = A(10)
+        let items = select_at(&frame, &args, date(1));
+        assert_eq!(codes(&items), ["000001"]);
+    }
+
+    // 链式逐日回测：净值按链式选中股票等权累乘。
+    #[test]
+    fn history_applies_stage_chain_daily() {
+        let frame = frame();
+        let args = chain_req(vec![
+            Stage {
+                field: Field::TotalMarket,
+                direction: Direction::Asc,
+                filter: OpFilter::None,
+                select: 2,
+            },
+            Stage {
+                field: Field::Close,
+                direction: Direction::Asc,
+                filter: OpFilter::None,
+                select: 1,
+            },
+        ]);
+        let result = history(&frame, &args);
+        // day1 选 A（市值最小2中收盘最低，profit 0.01）；day2 选 A(0.04)；day3 尾部 0
+        assert_eq!(result.count, [0, 1, 1, 1]);
+        assert!((result.portfolio[1] - 1.01).abs() < 1e-9);
+        assert!((result.portfolio[2] - 1.01 * 1.04).abs() < 1e-9);
         assert!((result.portfolio[3] - result.portfolio[2]).abs() < 1e-12);
     }
 }

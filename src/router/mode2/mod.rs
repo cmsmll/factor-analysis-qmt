@@ -20,9 +20,9 @@ use operator::{Direction, Field, Filter as OpFilter};
 pub mod engine;
 pub mod operator;
 
-/// 模式二选股请求参数。
+/// 选股算子链中的一段：对前一段输出执行「排序 → 过滤 → 截取前 N」。
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, validator::Validate)]
-pub struct Req {
+pub struct Stage {
     /// 因子字段
     pub field: Field,
     /// 排序方向
@@ -32,6 +32,14 @@ pub struct Req {
     /// 选股数量（前 N 名）
     #[validate(range(min = 1, message = "选股数量必须大于等于 1"))]
     pub select: usize,
+}
+
+/// 模式二选股请求参数。
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct Req {
+    /// 选股算子链（顺序执行，至少 1 段；前一段输出作为后一段输入）
+    #[validate(length(min = 1, message = "算子链至少 1 段"))]
+    pub stages: Vec<Stage>,
     /// 收益模式（1..=4，对应 `Bar.profit` 的 p1..p4；1=次日收盘收益）
     #[validate(range(min = 1, max = 4, message = "收益模式必须在 1..=4"))]
     pub profit_mode: u8,
@@ -42,11 +50,22 @@ pub struct Req {
 
 impl Default for Req {
     fn default() -> Self {
+        // 微盘股预设：市值最小 400 只 → 其中收盘价最低 80 只。
         Self {
-            field: Field::Close,
-            direction: Direction::Asc,
-            filter: OpFilter::None,
-            select: 10,
+            stages: vec![
+                Stage {
+                    field: Field::TotalMarket,
+                    direction: Direction::Asc,
+                    filter: OpFilter::None,
+                    select: 400,
+                },
+                Stage {
+                    field: Field::Close,
+                    direction: Direction::Asc,
+                    filter: OpFilter::None,
+                    select: 80,
+                },
+            ],
             profit_mode: 1,
             base: PoolFilter::new(date!(2025-01-01), date!(2025-12-31)),
         }

@@ -12,12 +12,17 @@ export type Mode2FilterType = 'None' | 'Less' | 'Greater' | 'Equal'
 /** 过滤条件：None 为字符串，阈值类为 `{ Less: number }` 对象。 */
 export type Mode2OpFilter = 'None' | { Less: number } | { Greater: number } | { Equal: number }
 
-/** 单日选股请求（POST /api/mode2/select）。 */
-export interface SelectParams {
+/** 选股算子链中的一段（与后端 `Stage` 对齐）。 */
+export interface Mode2Stage {
   field: Mode2Field
   direction: Mode2Direction
   filter: Mode2OpFilter
   select: number
+}
+
+/** 单日选股请求（POST /api/mode2/select）。 */
+export interface SelectParams {
+  stages: Mode2Stage[]
   profit_mode: 1 | 2 | 3 | 4
   date?: string
   base: ModeFilter
@@ -25,10 +30,7 @@ export interface SelectParams {
 
 /** 区间回测请求（POST /api/mode2/history）。 */
 export interface HistoryParams {
-  field: Mode2Field
-  direction: Mode2Direction
-  filter: Mode2OpFilter
-  select: number
+  stages: Mode2Stage[]
   profit_mode: 1 | 2 | 3 | 4
   base: ModeFilter
 }

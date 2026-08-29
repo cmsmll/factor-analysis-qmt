@@ -2,43 +2,29 @@ import { reactive, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 
 import { fetchMode2History, fetchMode2Select } from '@/api/mode2'
-import { fetchPeriods } from '@/api/mode1'
-import type { ModeFilter, Period } from '@/types/mode1'
+import type { ModeFilter } from '@/types/mode1'
 import type {
   HistoryParams,
-  Mode2Direction,
-  Mode2Field,
-  Mode2FilterType,
   Mode2History,
-  Mode2OpFilter,
+  Mode2Stage,
   SelectParams,
   StockItem,
 } from '@/types/mode2'
 
 const FILTER_CACHE_KEY = 'mode2-filter'
 
-function loadCachedBase(): Partial<ModeFilter> | null {
-  try {
-    const raw = localStorage.getItem(FILTER_CACHE_KEY)
-    if (!raw) return null
-    return JSON.parse(raw) as Partial<ModeFilter>
-  } catch {
-    return null
-  }
-}
+/** 微盘股预设：市值最小 400 只 → 其中收盘价最低 80 只。 */
+export const MICROCAP_STAGES: Mode2Stage[] = [
+  { field: 'TotalMarket', direction: 'Asc', filter: 'None', select: 400 },
+  { field: 'Close', direction: 'Asc', filter: 'None', select: 80 },
+]
 
 function cloneBase(base: ModeFilter): ModeFilter {
   return { ...base, sector: [...base.sector], indice: [...base.indice] }
 }
 
 export const useMode2Store = defineStore('mode2', () => {
-  // 选股参数
-  const field = ref<Mode2Field>('TotalMarket')
-  const direction = ref<Mode2Direction>('Desc')
-  const filterType = ref<Mode2FilterType>('None')
-  const threshold = ref<number | null>(null)
-  const selectN = ref<number | null>(10)
-  const profitMode = ref<1 | 2 | 3 | 4>(1)
+  // 股票池由看板固定过滤区驱动（applyPool），不含参数化选股配置。
   const base = reactive<ModeFilter>({
     start: '',
     end: '',
@@ -50,7 +36,6 @@ export const useMode2Store = defineStore('mode2', () => {
   const currentDate = ref('')
 
   // 结果与加载状态
-  const periods = shallowRef<Period[]>([])
   const history = shallowRef<Mode2History | null>(null)
   const stockItems = shallowRef<StockItem[]>([])
   const historyLoading = ref(false)
@@ -60,29 +45,13 @@ export const useMode2Store = defineStore('mode2', () => {
 
   let historyRequestVersion = 0
   let selectRequestVersion = 0
-  // 名单缓存：键 = 完整请求（含参数与日期），参数变更后自动失效
+  // 名单缓存：键 = 完整请求（含股票池与日期），池变更后自动失效
   const selectCache = new Map<string, StockItem[]>()
-
-  function opFilter(): Mode2OpFilter {
-    switch (filterType.value) {
-      case 'Less':
-        return { Less: threshold.value ?? 0 }
-      case 'Greater':
-        return { Greater: threshold.value ?? 0 }
-      case 'Equal':
-        return { Equal: threshold.value ?? 0 }
-      default:
-        return 'None'
-    }
-  }
 
   function buildSelectReq(date: string): SelectParams {
     return {
-      field: field.value,
-      direction: direction.value,
-      filter: opFilter(),
-      select: selectN.value ?? 10,
-      profit_mode: profitMode.value,
+      stages: MICROCAP_STAGES,
+      profit_mode: 1,
       date,
       base: cloneBase(base),
     }
@@ -90,45 +59,32 @@ export const useMode2Store = defineStore('mode2', () => {
 
   function buildHistoryReq(): HistoryParams {
     return {
-      field: field.value,
-      direction: direction.value,
-      filter: opFilter(),
-      select: selectN.value ?? 10,
-      profit_mode: profitMode.value,
+      stages: MICROCAP_STAGES,
+      profit_mode: 1,
       base: cloneBase(base),
     }
   }
 
-  function persistBase(): void {
+  /** 由看板固定过滤区驱动：更新股票池并刷新回测与当前日期名单。 */
+  async function applyPool(pool: {
+    start: string
+    end: string
+    sector: string[]
+    indice: string[]
+  }): Promise<void> {
+    base.start = pool.start
+    base.end = pool.end
+    base.sector = [...pool.sector]
+    base.indice = [...pool.indice]
     try {
       localStorage.setItem(FILTER_CACHE_KEY, JSON.stringify(cloneBase(base)))
     } catch {
       // localStorage full or unavailable
     }
+    await loadHistory()
   }
 
-  /** 初始化：加载周期配置与记忆的股票池，缺省取第一个周期。 */
-  async function init(): Promise<void> {
-    try {
-      periods.value = await fetchPeriods()
-    } catch {
-      // 无周期配置时保持空范围
-    }
-    const cached = loadCachedBase()
-    if (cached?.start && cached?.end) {
-      base.start = cached.start
-      base.end = cached.end
-      base.filter_bz = cached.filter_bz ?? false
-      base.filter_st = cached.filter_st ?? false
-      base.sector = cached.sector ?? []
-      base.indice = cached.indice ?? []
-    } else if (periods.value[0]) {
-      base.start = periods.value[0].start
-      base.end = periods.value[0].end
-    }
-  }
-
-  /** 区间回测；参数变更后同时刷新当前日期名单（D8）。 */
+  /** 区间回测；股票池变更后同步刷新当前日期名单。 */
   async function loadHistory(): Promise<void> {
     if (!base.start || !base.end) return
     const version = ++historyRequestVersion
@@ -138,7 +94,6 @@ export const useMode2Store = defineStore('mode2', () => {
       const data = await fetchMode2History(buildHistoryReq())
       if (historyRequestVersion !== version) return
       history.value = data
-      persistBase()
       const dates = uniqueDates(data.datetime)
       const last = dates.at(-1) ?? ''
       if (!currentDate.value || !dates.includes(currentDate.value)) {
@@ -180,22 +135,15 @@ export const useMode2Store = defineStore('mode2', () => {
   }
 
   return {
-    field,
-    direction,
-    filterType,
-    threshold,
-    selectN,
-    profitMode,
     base,
     currentDate,
-    periods,
     history,
     stockItems,
     historyLoading,
     selectLoading,
     historyError,
     selectError,
-    init,
+    applyPool,
     loadHistory,
     loadSelect,
   }

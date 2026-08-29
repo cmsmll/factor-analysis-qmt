@@ -1,33 +1,11 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import {
-  NButton,
-  NConfigProvider,
-  NDataTable,
-  NForm,
-  NFormItem,
-  NInput,
-  NPagination,
-  NSelect,
-  type DataTableColumns,
-} from 'naive-ui'
+import { NConfigProvider, NDataTable, NPagination, type DataTableColumns } from 'naive-ui'
 
-import RefreshIcon from '@/assets/icons/refresh.svg'
-import { fetchIndices, fetchSectors } from '@/api/mode1'
-import { useGlobalLoadingStore } from '@/stores/globalLoading'
-import { useGlobalMessageStore } from '@/stores/globalMessage'
-import { useGlobalFilterSelectorStore } from '@/stores/globalFilterSelector'
-import { createModeFilter, loadCachedFilter, useMode1Store } from '@/stores/mode1'
-import type {
-  ModeFilter,
-  ModeRequest,
-  Period,
-  Profit,
-  ProfitMode,
-  Mode1Data,
-} from '@/types/mode1'
+import { useMode1Store } from '@/stores/mode1'
+import type { Mode1Data, ModeRequest, Profit, ProfitMode } from '@/types/mode1'
 
 defineOptions({ name: 'FactorDashboard' })
 
@@ -39,49 +17,25 @@ interface FactorRow {
   data?: Mode1Data
 }
 
+/** 看板固定过滤区下发的过滤状态（数据加载由 KanbanBoard 驱动）。 */
+const props = defineProps<{
+  searchKeyword: string
+  profitMode: ProfitMode
+  /** 列表刷新版本号：变化时重置分页 */
+  revision: number
+}>()
+
 const router = useRouter()
 const store = useMode1Store()
-const globalLoading = useGlobalLoadingStore()
-const globalMessage = useGlobalMessageStore()
-const filterSelector = useGlobalFilterSelectorStore()
-const { periods, items, periodLoading, listLoading, periodError, listError } = storeToRefs(store)
-const { visible: globalLoadingVisible } = storeToRefs(globalLoading)
-const searchKeyword = ref('')
+const { items, listLoading } = storeToRefs(store)
+
 const page = ref(1)
 const pageSize = ref(10)
 const sortKey = ref<string | null>(null)
 const sortOrder = ref<'ascend' | 'descend' | false>(false)
 
-let settingInitialPeriod = false
-const listFilter = reactive<ModeFilter>({
-  start: '',
-  end: '',
-  filter_bz: false,
-  filter_st: false,
-  sector: [],
-  indice: [],
-})
-const sectorOptions = ref<string[]>()
-const indiceOptions = ref<string[]>()
-const filters = reactive({
-  period: '',
-  profitMode: 1 as ProfitMode,
-})
-
-const periodOptions = computed(() =>
-  periods.value.map((period) => ({ label: period.name, value: period.name })),
-)
-const profitModeOptions = [
-  { label: '收益1：当天收盘买，第二天收盘卖', value: 1 },
-  { label: '收益2：第二天开盘买，第二天收盘卖', value: 2 },
-  { label: '收益3：第二天开盘买，第三天开盘卖', value: 3 },
-  { label: '收益4：第二天开盘买，第三天收盘卖', value: 4 },
-]
-const localPeriodLoading = computed(() => periodLoading.value && !globalLoadingVisible.value)
-const localListLoading = computed(() => listLoading.value && !globalLoadingVisible.value)
-
 const filteredItems = computed(() => {
-  const keyword = searchKeyword.value.trim().toLowerCase()
+  const keyword = props.searchKeyword.trim().toLowerCase()
   const indexedItems = items.value.map((item, sourceIndex) => ({ item, sourceIndex }))
 
   return keyword
@@ -115,147 +69,24 @@ const rows = computed<FactorRow[]>(() => {
   }))
 })
 
-watch(searchKeyword, () => {
-  page.value = 1
-})
+watch(
+  () => props.searchKeyword,
+  () => {
+    page.value = 1
+  },
+)
+
+watch(
+  () => props.revision,
+  () => {
+    page.value = 1
+  },
+)
 
 watch(itemCount, (count) => {
   const lastPage = Math.max(1, Math.ceil(count / pageSize.value))
   if (page.value > lastPage) page.value = lastPage
 })
-
-watch(
-  () => filters.period,
-  (name) => {
-    if (!name || settingInitialPeriod) return
-    void loadPeriod(name)
-  },
-  { flush: 'sync' },
-)
-
-onMounted(() => void initializeMode1())
-
-async function initializeMode1() {
-  try {
-    await globalLoading.run(async () => {
-      await store.loadPeriods()
-      if (periodError.value) throw new Error(periodError.value)
-
-      const period = periods.value[0]
-      if (!period) throw new Error('没有可用的时间周期配置')
-
-      const cachedFilter = loadCachedFilter()
-      if (cachedFilter) {
-        settingInitialPeriod = true
-        const matchingPeriod = periods.value.find(
-          (p) => p.start === cachedFilter.start && p.end === cachedFilter.end,
-        )
-        filters.period = matchingPeriod?.name || period.name
-        settingInitialPeriod = false
-        Object.assign(listFilter, cachedFilter)
-        await reloadList()
-      } else {
-        settingInitialPeriod = true
-        filters.period = period.name
-        settingInitialPeriod = false
-        resetListFilter(period)
-        await reloadList()
-      }
-    })
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '获取模式一列表失败'))
-  }
-}
-
-async function loadPeriod(name: string) {
-  const period = periods.value.find((item) => item.name === name)
-  if (!period) return
-
-  page.value = 1
-  applyPeriodToFilter(period)
-  try {
-    await globalLoading.run(async () => {
-      await reloadList()
-    })
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '获取模式一列表失败'))
-  }
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
-}
-
-async function reloadDashboard(): Promise<void> {
-  try {
-    await globalLoading.run(async () => {
-      await reloadList()
-    })
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '获取模式一列表失败'))
-  }
-}
-
-async function reloadList(): Promise<void> {
-  if (!listFilter.start || !listFilter.end) throw new Error('没有可用的时间周期配置')
-
-  page.value = 1
-  await store.loadList(cloneModeFilter(listFilter))
-  if (listError.value) throw new Error(listError.value)
-}
-
-async function selectSectors(): Promise<void> {
-  try {
-    if (!sectorOptions.value) {
-      await globalLoading.run(async () => {
-        sectorOptions.value = await fetchSectors()
-      })
-    }
-    const result = await filterSelector.open({
-      title: '行业板块',
-      options: sectorOptions.value ?? [],
-      selected: listFilter.sector,
-    })
-    if (result) listFilter.sector = result
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '行业板块加载失败'))
-  }
-}
-
-async function selectIndices(): Promise<void> {
-  try {
-    if (!indiceOptions.value) {
-      await globalLoading.run(async () => {
-        indiceOptions.value = await fetchIndices()
-      })
-    }
-    const result = await filterSelector.open({
-      title: '指数列表',
-      options: indiceOptions.value ?? [],
-      selected: listFilter.indice,
-    })
-    if (result) listFilter.indice = result
-  } catch (error) {
-    globalMessage.error(errorMessage(error, '指数列表加载失败'))
-  }
-}
-
-function resetListFilter(period: Period): void {
-  Object.assign(listFilter, createModeFilter(period))
-}
-
-function applyPeriodToFilter(period: Period): void {
-  listFilter.start = period.start
-  listFilter.end = period.end
-}
-
-function cloneModeFilter(filter: ModeFilter): ModeFilter {
-  return {
-    ...filter,
-    sector: [...filter.sector],
-    indice: [...filter.indice],
-  }
-}
 
 function handleSorterChange(
   sorter: { columnKey?: string; order?: 'ascend' | 'descend' | false } | null,
@@ -310,7 +141,7 @@ function average(values: readonly number[] | undefined): number | undefined {
 function profitGroups(row: FactorRow): Profit[] {
   if (!row.data) return []
 
-  switch (filters.profitMode) {
+  switch (props.profitMode) {
     case 2:
       return row.data.profit2
     case 3:
@@ -476,67 +307,12 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
 <template>
   <NConfigProvider>
     <div class="factorKanban-layout">
-      <!-- 筛选区域 -->
-      <div class="filter-bar">
-        <NForm layout="inline" label-placement="left" size="small">
-          <NFormItem label="因子搜索">
-            <NInput
-              v-model:value="searchKeyword"
-              placeholder="输入因子名称搜索"
-              clearable
-              style="width: 180px"
-            />
-          </NFormItem>
-          <NFormItem label="行业板块">
-            <NButton size="small" class="selector-button" @click="selectSectors">
-              {{ listFilter.sector.length ? `已选 ${listFilter.sector.length} 项` : '全部行业' }}
-            </NButton>
-          </NFormItem>
-          <NFormItem label="指数列表">
-            <NButton size="small" class="selector-button" @click="selectIndices">
-              {{ listFilter.indice.length ? `已选 ${listFilter.indice.length} 项` : '全部指数' }}
-            </NButton>
-          </NFormItem>
-          <NFormItem label="时间周期">
-            <NSelect
-              v-model:value="filters.period"
-              :options="periodOptions"
-              :loading="localPeriodLoading"
-              :disabled="periodLoading || listLoading"
-              style="width: 140px"
-            />
-          </NFormItem>
-          <NFormItem label="收益模式">
-            <NSelect
-              v-model:value="filters.profitMode"
-              :options="profitModeOptions"
-              :consistent-menu-width="false"
-              style="width: 260px"
-            />
-          </NFormItem>
-          <NFormItem label="" class="reload-form-item">
-            <NButton
-              type="primary"
-              color="#409eff"
-              size="small"
-              class="reload-btn"
-              :loading="localListLoading"
-              :disabled="periodLoading || listLoading"
-              @click="reloadDashboard"
-            >
-              <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
-              重载
-            </NButton>
-          </NFormItem>
-        </NForm>
-      </div>
-
       <!-- 表格区域 -->
       <NDataTable
         :columns="columns"
         :data="rows"
         :row-key="rowKey"
-        :loading="localListLoading"
+        :loading="listLoading"
         :bordered="true"
         :single-line="true"
         :pagination="false"
@@ -577,57 +353,7 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 32px;
   gap: 24px;
-}
-
-.page-footer {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0;
-  color: #999;
-  font-size: 13px;
-}
-
-.filter-bar {
-  background: #fff;
-  padding: 16px 20px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.filter-bar :deep(.n-form) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 20px;
-}
-
-.filter-bar :deep(.n-form-item) {
-  margin-bottom: 0;
-}
-
-.filter-bar :deep(.n-form-item-feedback-wrapper) {
-  display: none;
-}
-
-.selector-button {
-  min-width: 112px;
-  color: #409eff;
-}
-
-.reload-form-item {
-  margin-left: auto;
-}
-
-.reload-btn {
-  min-width: 76px;
-}
-
-.reload-icon {
-  width: 14px;
-  height: 14px;
-  filter: brightness(0) invert(1);
 }
 
 .factor-table {
@@ -646,5 +372,13 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
 
 .pagination-wrap :deep(.n-pagination-item--button) {
   --n-button-color: #fff;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+  color: #999;
+  font-size: 13px;
 }
 </style>
