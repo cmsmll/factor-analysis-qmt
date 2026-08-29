@@ -115,8 +115,10 @@ function rateCell(value: number | undefined) {
   return h('span', { style: { color: rateColor(value) } }, formatPercent(value))
 }
 
+// 换手率列：后端已是百分比数值（如 2.29 即 2.29%），不再 ×100
 function turnoverCell(value: number | undefined) {
-  return h('span', formatPercent(value))
+  const text = value === undefined || !Number.isFinite(value) ? '--' : `${value.toFixed(2)}%`
+  return h('span', text)
 }
 
 function integerCell(value: number | undefined) {
