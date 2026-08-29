@@ -49,11 +49,12 @@ const {
 // 两级视图由路由决定：列表（/mode2）→ 预览（/mode2/:key，刷新/直达均可恢复）
 const view = computed(() => (route.name === 'mode2-preview' ? 'preview' : 'list'))
 
-// 预览路由参数（策略 id）→ 同步当前策略并加载其回测/名单（结果按 id 缓存）
+// 预览路由参数（策略 id）→ 同步当前策略并加载其回测/名单（结果按 id 缓存）。
+// 仅限 mode2-preview 路由；/mode1/:id 等其它含 id 参数的路由不得触发。
 watch(
   () => route.params.id,
   (id) => {
-    if (!id) return
+    if (!id || route.name !== 'mode2-preview') return
     const strategyId = String(id)
     if (!MODE2_STRATEGIES.some((strategy) => strategy.key === strategyId)) {
       void router.replace('/mode2')
