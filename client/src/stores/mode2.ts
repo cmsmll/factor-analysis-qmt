@@ -123,6 +123,13 @@ export const useMode2Store = defineStore('mode2', () => {
     await loadHistory()
   }
 
+  /** 预览页 ST/北证过滤切换：刷新列表统计与当前策略回测/名单。 */
+  async function setStFilter(field: 'filter_bz' | 'filter_st', value: boolean): Promise<void> {
+    if (base[field] === value) return
+    base[field] = value
+    await Promise.all([loadListStats(), loadHistory()])
+  }
+
   /** 列表数据：逐策略调 history（当前股票池 + 收益模式），供列表统计与平均入选数使用。 */
   async function loadListStats(): Promise<void> {
     if (!base.start || !base.end) return
@@ -213,6 +220,7 @@ export const useMode2Store = defineStore('mode2', () => {
     applyPool,
     applyProfitMode,
     selectStrategy,
+    setStFilter,
     loadListStats,
     loadHistory,
     loadSelect,

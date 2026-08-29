@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import {
   NButton,
   NCard,
+  NCheckbox,
   NDataTable,
   NEmpty,
   NSelect,
@@ -24,6 +25,7 @@ defineOptions({ name: 'Mode2Microcap' })
 
 const store = useMode2Store()
 const {
+  base,
   currentDate,
   currentStrategyKey,
   history,
@@ -50,6 +52,10 @@ function openStrategy(strategy: Mode2Strategy): void {
 
 function backToList(): void {
   view.value = 'list'
+}
+
+function onStFilter(field: 'filter_bz' | 'filter_st', value: boolean): void {
+  void store.setStFilter(field, value)
 }
 
 // ── 列表视图 ──
@@ -262,6 +268,10 @@ const stockColumns: DataTableColumns<StockItem> = [
         <div class="list-toolbar">
           <span class="list-date-label">名单日期</span>
           <NSelect v-model:value="currentDate" :options="dateOptions" class="date-select" />
+          <span class="list-date-label">过滤ST</span>
+          <NCheckbox :checked="base.filter_st" @update:checked="onStFilter('filter_st', $event)" />
+          <span class="list-date-label">过滤北证</span>
+          <NCheckbox :checked="base.filter_bz" @update:checked="onStFilter('filter_bz', $event)" />
           <span v-if="selectLoading" class="loading-tip">加载中…</span>
         </div>
         <NSpin :show="selectLoading">
