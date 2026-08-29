@@ -16,7 +16,7 @@ const sorted = computed(() => [...props.items].sort((left, right) => right.facto
 const option = computed<EChartsOption>(() => ({
   tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
   grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
-  xAxis: { type: 'value' },
+  xAxis: { type: 'value', axisLabel: { formatter: (value: number) => Number(value).toFixed(2) } },
   yAxis: {
     type: 'category',
     data: sorted.value.map((item) => `${item.code} ${item.name}`),

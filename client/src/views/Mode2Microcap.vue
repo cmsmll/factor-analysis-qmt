@@ -140,7 +140,7 @@ const strategyColumns: DataTableColumns<StrategyRow> = [
     align: 'center',
     sorter: true,
     width: 100,
-    render: (row) => (row.data ? avgCount(row.data).toFixed(1) : '--'),
+    render: (row) => (row.data ? avgCount(row.data).toFixed(2) : '--'),
   },
 ]
 
@@ -233,7 +233,7 @@ const stockColumns: DataTableColumns<StockItem> = [
               <NStatistic label="年化收益" :value="(stats?.annualized ?? 0) * 100" precision="2" suffix="%" />
               <NStatistic label="最大回撤" :value="(stats?.max_drawdown ?? 0) * 100" precision="2" suffix="%" />
               <NStatistic label="胜率" :value="(stats?.win_rate ?? 0) * 100" precision="2" suffix="%" />
-              <NStatistic label="平均入选数" :value="previewAvgCount" precision="1" />
+              <NStatistic label="平均入选数" :value="previewAvgCount" precision="2" />
             </div>
           </NCard>
           <div class="chart-grid">

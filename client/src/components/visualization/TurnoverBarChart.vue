@@ -16,7 +16,7 @@ const option = computed<EChartsOption>(() => ({
   grid: { left: 8, right: 16, top: 36, bottom: 24, containLabel: true },
   xAxis: { type: 'category', data: props.dates },
   yAxis: [
-    { type: 'value', name: '换手率', max: 1, axisLabel: { formatter: (value: number) => `${(value * 100).toFixed(0)}%` } },
+    { type: 'value', name: '换手率', max: 1, axisLabel: { formatter: (value: number) => `${(value * 100).toFixed(2)}%` } },
     { type: 'value', name: '入选数', splitLine: { show: false } },
   ],
   series: [

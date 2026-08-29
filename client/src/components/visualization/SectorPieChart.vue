@@ -21,7 +21,13 @@ const option = computed<EChartsOption>(() => {
     .map(([name, value]) => ({ name, value }))
     .sort((left, right) => right.value - left.value)
   return {
-    tooltip: { trigger: 'item' },
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: unknown) => {
+        const item = params as { name: string; value: number; percent: number }
+        return `${item.name}: ${item.value} (${item.percent.toFixed(2)}%)`
+      },
+    },
     legend: { type: 'scroll', bottom: 0 },
     series: [{ type: 'pie', radius: ['35%', '62%'], center: ['50%', '45%'], data }],
   }
