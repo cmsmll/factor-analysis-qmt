@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, h, ref, watch } from 'vue'
+import { computed, h, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import {
   NButton,
@@ -23,6 +24,8 @@ import type { Mode2History, Mode2Strategy, StockItem } from '@/types/mode2'
 
 defineOptions({ name: 'Mode2Microcap' })
 
+const route = useRoute()
+const router = useRouter()
 const store = useMode2Store()
 const {
   base,
@@ -38,20 +41,34 @@ const {
   selectError,
 } = storeToRefs(store)
 
-// 两级视图：列表（初始）→ 预览
-const view = ref<'list' | 'preview'>('list')
+// 两级视图由路由决定：列表（/mode2）→ 预览（/mode2/:key，刷新/直达均可恢复）
+const view = computed(() => (route.name === 'mode2-preview' ? 'preview' : 'list'))
+
+// 预览路由参数 → 同步当前策略并加载其回测/名单
+watch(
+  () => route.params.key,
+  (key) => {
+    if (!key) return
+    const strategyKey = String(key)
+    if (!MODE2_STRATEGIES.some((strategy) => strategy.key === strategyKey)) {
+      void router.replace('/mode2')
+      return
+    }
+    void store.selectStrategy(strategyKey)
+  },
+  { immediate: true },
+)
 
 const currentStrategy = computed(
   () => MODE2_STRATEGIES.find((strategy) => strategy.key === currentStrategyKey.value) ?? MODE2_STRATEGIES[0]!,
 )
 
 function openStrategy(strategy: Mode2Strategy): void {
-  void store.selectStrategy(strategy.key)
-  view.value = 'preview'
+  void router.push(`/mode2/${strategy.key}`)
 }
 
 function backToList(): void {
-  view.value = 'list'
+  void router.push('/mode2')
 }
 
 function onStFilter(field: 'filter_bz' | 'filter_st', value: boolean): void {

@@ -116,11 +116,11 @@ export const useMode2Store = defineStore('mode2', () => {
     await Promise.all([loadListStats(), loadHistory()])
   }
 
-  /** 选择预览策略：加载该策略的回测与名单。 */
+  /** 选择预览策略：加载该策略的回测与名单（首次或策略变更时）。 */
   async function selectStrategy(key: string): Promise<void> {
-    if (currentStrategyKey.value === key) return
+    const changed = currentStrategyKey.value !== key
     currentStrategyKey.value = key
-    await loadHistory()
+    if (changed || !history.value) await loadHistory()
   }
 
   /** 预览页 ST/北证过滤切换：刷新列表统计与当前策略回测/名单。 */
