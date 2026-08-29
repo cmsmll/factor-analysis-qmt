@@ -1,4 +1,4 @@
-import { reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 
 import { fetchMode2History, fetchMode2Select } from '@/api/mode2'
@@ -7,6 +7,7 @@ import type {
   HistoryParams,
   Mode2History,
   Mode2Stage,
+  Mode2Strategy,
   SelectParams,
   StockItem,
 } from '@/types/mode2'
@@ -17,6 +18,16 @@ const FILTER_CACHE_KEY = 'mode2-filter'
 export const MICROCAP_STAGES: Mode2Stage[] = [
   { field: 'TotalMarket', direction: 'Asc', filter: 'None', select: 400 },
   { field: 'Close', direction: 'Asc', filter: 'None', select: 80 },
+]
+
+/** 因子选股策略预设（前端静态定义，可扩展）。 */
+export const MODE2_STRATEGIES: Mode2Strategy[] = [
+  {
+    key: 'microcap',
+    name: '微盘股',
+    desc: '市值最小的 400 只中，收盘价最低的 80 只',
+    stages: MICROCAP_STAGES,
+  },
 ]
 
 function cloneBase(base: ModeFilter): ModeFilter {
@@ -34,12 +45,18 @@ export const useMode2Store = defineStore('mode2', () => {
     indice: [],
   })
   const currentDate = ref('')
+  // 收益模式与当前预览策略（由固定过滤区收益模式与列表行点击驱动）
+  const profitMode = ref<1 | 2 | 3 | 4>(1)
+  const currentStrategyKey = ref(MODE2_STRATEGIES[0]!.key)
 
   // 结果与加载状态
   const history = shallowRef<Mode2History | null>(null)
   const stockItems = shallowRef<StockItem[]>([])
+  // 列表页数据：每个策略的完整回测（stats + count，平均入选数由 count 计算）
+  const strategyData = shallowRef<Record<string, Mode2History>>({})
   const historyLoading = ref(false)
   const selectLoading = ref(false)
+  const statsLoading = ref(false)
   const historyError = ref('')
   const selectError = ref('')
 
@@ -48,10 +65,14 @@ export const useMode2Store = defineStore('mode2', () => {
   // 名单缓存：键 = 完整请求（含股票池与日期），池变更后自动失效
   const selectCache = new Map<string, StockItem[]>()
 
+  const currentStrategy = computed(
+    () => MODE2_STRATEGIES.find((strategy) => strategy.key === currentStrategyKey.value) ?? MODE2_STRATEGIES[0]!,
+  )
+
   function buildSelectReq(date: string): SelectParams {
     return {
-      stages: MICROCAP_STAGES,
-      profit_mode: 1,
+      stages: currentStrategy.value.stages,
+      profit_mode: profitMode.value,
       date,
       base: cloneBase(base),
     }
@@ -59,13 +80,13 @@ export const useMode2Store = defineStore('mode2', () => {
 
   function buildHistoryReq(): HistoryParams {
     return {
-      stages: MICROCAP_STAGES,
-      profit_mode: 1,
+      stages: currentStrategy.value.stages,
+      profit_mode: profitMode.value,
       base: cloneBase(base),
     }
   }
 
-  /** 由看板固定过滤区驱动：更新股票池并刷新回测与当前日期名单。 */
+  /** 由看板固定过滤区驱动：更新股票池并刷新列表统计、回测与当前日期名单。 */
   async function applyPool(pool: {
     start: string
     end: string
@@ -81,7 +102,44 @@ export const useMode2Store = defineStore('mode2', () => {
     } catch {
       // localStorage full or unavailable
     }
+    await Promise.all([loadListStats(), loadHistory()])
+  }
+
+  /** 收益模式变更：重算全部策略列表统计与当前策略预览回测。 */
+  async function applyProfitMode(mode: 1 | 2 | 3 | 4): Promise<void> {
+    if (profitMode.value === mode) return
+    profitMode.value = mode
+    await Promise.all([loadListStats(), loadHistory()])
+  }
+
+  /** 选择预览策略：加载该策略的回测与名单。 */
+  async function selectStrategy(key: string): Promise<void> {
+    if (currentStrategyKey.value === key) return
+    currentStrategyKey.value = key
     await loadHistory()
+  }
+
+  /** 列表数据：逐策略调 history（当前股票池 + 收益模式），供列表统计与平均入选数使用。 */
+  async function loadListStats(): Promise<void> {
+    if (!base.start || !base.end) return
+    statsLoading.value = true
+    try {
+      const results = await Promise.all(
+        MODE2_STRATEGIES.map(async (strategy) => {
+          const data = await fetchMode2History({
+            stages: strategy.stages,
+            profit_mode: profitMode.value,
+            base: cloneBase(base),
+          })
+          return [strategy.key, data] as const
+        }),
+      )
+      strategyData.value = Object.fromEntries(results)
+    } catch {
+      // 统计加载失败时保留旧值
+    } finally {
+      statsLoading.value = false
+    }
   }
 
   /** 区间回测；股票池变更后同步刷新当前日期名单。 */
@@ -137,13 +195,21 @@ export const useMode2Store = defineStore('mode2', () => {
   return {
     base,
     currentDate,
+    profitMode,
+    currentStrategyKey,
+    currentStrategy,
     history,
     stockItems,
+    strategyData,
     historyLoading,
     selectLoading,
+    statsLoading,
     historyError,
     selectError,
     applyPool,
+    applyProfitMode,
+    selectStrategy,
+    loadListStats,
     loadHistory,
     loadSelect,
   }

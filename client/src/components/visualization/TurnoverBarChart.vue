@@ -20,8 +20,23 @@ const option = computed<EChartsOption>(() => ({
     { type: 'value', name: '入选数', splitLine: { show: false } },
   ],
   series: [
-    { name: '调仓换手率', type: 'bar', data: props.turnover, yAxisIndex: 0, barMaxWidth: 12 },
-    { name: '入选数', type: 'line', data: props.count, yAxisIndex: 1, smooth: true, symbol: 'none' },
+    {
+      name: '调仓换手率',
+      type: 'bar',
+      data: props.turnover,
+      yAxisIndex: 0,
+      barMaxWidth: 12,
+      tooltip: { valueFormatter: (value) => `${(Number(value) * 100).toFixed(2)}%` },
+    },
+    {
+      name: '入选数',
+      type: 'line',
+      data: props.count,
+      yAxisIndex: 1,
+      smooth: true,
+      symbol: 'none',
+      tooltip: { valueFormatter: (value) => String(Number(value)) },
+    },
   ],
 }))
 </script>
@@ -33,6 +48,6 @@ const option = computed<EChartsOption>(() => ({
 <style scoped>
 .chart-body {
   width: 100%;
-  height: 240px;
+  height: 320px;
 }
 </style>

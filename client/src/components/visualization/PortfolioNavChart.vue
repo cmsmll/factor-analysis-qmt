@@ -13,7 +13,10 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'select-date', date: string): void }>()
 
 const option = computed<EChartsOption>(() => ({
-  tooltip: { trigger: 'axis' },
+  tooltip: {
+    trigger: 'axis',
+    valueFormatter: (value) => Number(value).toFixed(2),
+  },
   legend: { data: ['组合', '基准'], top: 0 },
   grid: { left: 8, right: 16, top: 36, bottom: 24, containLabel: true },
   xAxis: { type: 'category', data: props.dates, boundaryGap: false },

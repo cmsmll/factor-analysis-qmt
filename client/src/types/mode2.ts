@@ -20,6 +20,14 @@ export interface Mode2Stage {
   select: number
 }
 
+/** 因子选股策略预设（前端静态定义，可扩展）。 */
+export interface Mode2Strategy {
+  key: string
+  name: string
+  desc: string
+  stages: Mode2Stage[]
+}
+
 /** 单日选股请求（POST /api/mode2/select）。 */
 export interface SelectParams {
   stages: Mode2Stage[]

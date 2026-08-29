@@ -2,6 +2,7 @@
 import { computed, h, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
+  NButton,
   NCard,
   NDataTable,
   NEmpty,
@@ -16,31 +17,146 @@ import FactorRankChart from '@/components/visualization/FactorRankChart.vue'
 import PortfolioNavChart from '@/components/visualization/PortfolioNavChart.vue'
 import SectorPieChart from '@/components/visualization/SectorPieChart.vue'
 import TurnoverBarChart from '@/components/visualization/TurnoverBarChart.vue'
-import { uniqueDates, useMode2Store } from '@/stores/mode2'
-import type { StockItem } from '@/types/mode2'
+import { MODE2_STRATEGIES, uniqueDates, useMode2Store } from '@/stores/mode2'
+import type { Mode2History, Mode2Strategy, StockItem } from '@/types/mode2'
 
 defineOptions({ name: 'Mode2Microcap' })
 
 const store = useMode2Store()
-const { currentDate, history, stockItems, historyLoading, selectLoading, historyError, selectError } =
-  storeToRefs(store)
+const {
+  currentDate,
+  currentStrategyKey,
+  history,
+  stockItems,
+  strategyData,
+  historyLoading,
+  selectLoading,
+  statsLoading,
+  historyError,
+  selectError,
+} = storeToRefs(store)
 
+// 两级视图：列表（初始）→ 预览
+const view = ref<'list' | 'preview'>('list')
+
+const currentStrategy = computed(
+  () => MODE2_STRATEGIES.find((strategy) => strategy.key === currentStrategyKey.value) ?? MODE2_STRATEGIES[0]!,
+)
+
+function openStrategy(strategy: Mode2Strategy): void {
+  void store.selectStrategy(strategy.key)
+  view.value = 'preview'
+}
+
+function backToList(): void {
+  view.value = 'list'
+}
+
+// ── 列表视图 ──
+interface StrategyRow {
+  strategy: Mode2Strategy
+  data: Mode2History | undefined
+}
+
+const listRows = computed<StrategyRow[]>(() =>
+  MODE2_STRATEGIES.map((strategy) => ({
+    strategy,
+    data: strategyData.value[strategy.key],
+  })),
+)
+
+function avgCount(data: Mode2History | undefined): number {
+  const counts = data?.count.slice(1) ?? []
+  return counts.length ? counts.reduce((sum, value) => sum + value, 0) / counts.length : 0
+}
+
+function rateColor(value: number | undefined): string {
+  if (value === undefined || value === 0) return '#1f2225'
+  return value > 0 ? '#d03050' : '#18a058'
+}
+
+function rateCell(value: number | undefined) {
+  const text = value === undefined ? '--' : `${(value * 100).toFixed(2)}%`
+  return h('span', { style: { color: rateColor(value) } }, text)
+}
+
+const strategyColumns: DataTableColumns<StrategyRow> = [
+  {
+    title: '因子选股名称',
+    key: 'name',
+    align: 'center',
+    width: 160,
+    render: (row) =>
+      h(
+        'span',
+        {
+          style: { color: 'rgb(30, 70, 125)', cursor: 'pointer' },
+          onClick: () => openStrategy(row.strategy),
+        },
+        row.strategy.name,
+      ),
+  },
+  {
+    title: '描述',
+    key: 'desc',
+    ellipsis: { tooltip: true },
+    render: (row) => row.strategy.desc,
+  },
+  {
+    title: '总收益',
+    key: 'total_profit',
+    align: 'center',
+    sorter: true,
+    width: 110,
+    render: (row) => rateCell(row.data?.stats.total_profit),
+  },
+  {
+    title: '年化收益',
+    key: 'annualized',
+    align: 'center',
+    sorter: true,
+    width: 110,
+    render: (row) => rateCell(row.data?.stats.annualized),
+  },
+  {
+    title: '最大回撤',
+    key: 'max_drawdown',
+    align: 'center',
+    sorter: true,
+    width: 110,
+    render: (row) => rateCell(row.data?.stats.max_drawdown),
+  },
+  {
+    title: '胜率',
+    key: 'win_rate',
+    align: 'center',
+    sorter: true,
+    width: 90,
+    render: (row) => rateCell(row.data?.stats.win_rate),
+  },
+  {
+    title: '平均入选数',
+    key: 'avg_count',
+    align: 'center',
+    sorter: true,
+    width: 100,
+    render: (row) => (row.data ? avgCount(row.data).toFixed(1) : '--'),
+  },
+]
+
+// ── 预览视图 ──
 const dateOptions = computed(() =>
   history.value ? uniqueDates(history.value.datetime).map((date) => ({ label: date, value: date })) : [],
 )
 
-// 名单日期变更 → 重新加载该日微盘股名单
+// 名单日期变更 → 重新加载该日名单
 watch(currentDate, (date) => {
   if (date) void store.loadSelect(date)
 })
 
 const stats = computed(() => history.value?.stats ?? null)
 
-// 平均入选数：排除首点基线（前端由 count 计算）。
-const avgCount = computed(() => {
-  const counts = history.value?.count.slice(1) ?? []
-  return counts.length ? counts.reduce((sum, value) => sum + value, 0) / counts.length : 0
-})
+const previewAvgCount = computed(() => avgCount(history.value ?? undefined))
 
 function formatFactor(value: number): string {
   const abs = Math.abs(value)
@@ -49,7 +165,7 @@ function formatFactor(value: number): string {
   return value.toFixed(2)
 }
 
-const columns: DataTableColumns<StockItem> = [
+const stockColumns: DataTableColumns<StockItem> = [
   { title: '#', key: 'rank', width: 48, render: (_row, index) => index + 1 },
   { title: '代码', key: 'code', width: 80 },
   { title: '名称', key: 'name', width: 110 },
@@ -85,68 +201,92 @@ const columns: DataTableColumns<StockItem> = [
 
 <template>
   <div class="microcap-layout">
-    <NSpin :show="historyLoading">
-      <div v-if="historyError" class="error-tip">{{ historyError }}</div>
-      <template v-else-if="history">
-        <NCard title="回测统计" size="small" class="stats-card">
-          <div class="stats-row">
-            <NStatistic label="总收益" :value="(stats?.total_profit ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="年化收益" :value="(stats?.annualized ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="最大回撤" :value="(stats?.max_drawdown ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="胜率" :value="(stats?.win_rate ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="平均入选数" :value="avgCount" precision="1" />
-          </div>
-        </NCard>
-        <div class="chart-grid">
-          <NCard title="组合 / 基准净值" size="small" class="chart-card">
-            <PortfolioNavChart
-              :dates="history.datetime"
-              :portfolio="history.portfolio"
-              :benchmark="history.benchmark"
-              @select-date="currentDate = $event"
-            />
-            <div class="chart-tip">点击曲线上的日期可联动下方名单；区间尾部 1-2 个交易日无未来收益数据。</div>
-          </NCard>
-          <NCard title="调仓换手率 / 入选数" size="small" class="chart-card">
-            <TurnoverBarChart
-              :dates="history.datetime"
-              :turnover="history.turnover"
-              :count="history.count"
-            />
-          </NCard>
-        </div>
-      </template>
-      <NEmpty v-else description="请先选择时间周期" class="empty-block" />
-    </NSpin>
-
-    <NCard title="微盘股名单（市值最小 400 只 → 收盘价最低 80 只）" size="small" class="list-card">
-      <div class="list-toolbar">
-        <span class="list-date-label">名单日期</span>
-        <NSelect v-model:value="currentDate" :options="dateOptions" class="date-select" />
-        <span v-if="selectLoading" class="loading-tip">加载中…</span>
-      </div>
-      <NSpin :show="selectLoading">
-        <div v-if="selectError" class="error-tip">{{ selectError }}</div>
-        <template v-else-if="stockItems.length">
+    <!-- 列表视图（初始） -->
+    <template v-if="view === 'list'">
+      <NCard title="因子选股" size="small" class="list-card">
+        <NSpin :show="statsLoading">
           <NDataTable
-            :columns="columns"
-            :data="stockItems"
-            :row-key="(row) => row.code"
+            :columns="strategyColumns"
+            :data="listRows"
+            :row-key="(row) => row.strategy.key"
+            :loading="statsLoading"
             size="small"
-            class="stock-table"
+            class="strategy-table"
           />
-          <div class="list-charts">
-            <NCard title="行业/指数分布" size="small">
-              <SectorPieChart :items="stockItems" />
+          <NEmpty v-if="!statsLoading && listRows.length === 0" description="暂无选股策略" class="empty-block" />
+        </NSpin>
+      </NCard>
+    </template>
+
+    <!-- 预览视图 -->
+    <template v-else>
+      <div class="preview-toolbar">
+        <NButton size="small" @click="backToList">← 返回列表</NButton>
+        <span class="preview-title">{{ currentStrategy.name }} · {{ currentStrategy.desc }}</span>
+      </div>
+      <NSpin :show="historyLoading">
+        <div v-if="historyError" class="error-tip">{{ historyError }}</div>
+        <template v-else-if="history">
+          <NCard title="回测统计" size="small" class="stats-card">
+            <div class="stats-row">
+              <NStatistic label="总收益" :value="(stats?.total_profit ?? 0) * 100" precision="2" suffix="%" />
+              <NStatistic label="年化收益" :value="(stats?.annualized ?? 0) * 100" precision="2" suffix="%" />
+              <NStatistic label="最大回撤" :value="(stats?.max_drawdown ?? 0) * 100" precision="2" suffix="%" />
+              <NStatistic label="胜率" :value="(stats?.win_rate ?? 0) * 100" precision="2" suffix="%" />
+              <NStatistic label="平均入选数" :value="previewAvgCount" precision="1" />
+            </div>
+          </NCard>
+          <div class="chart-grid">
+            <NCard title="组合 / 基准净值" size="small" class="chart-card">
+              <PortfolioNavChart
+                :dates="history.datetime"
+                :portfolio="history.portfolio"
+                :benchmark="history.benchmark"
+                @select-date="currentDate = $event"
+              />
+              <div class="chart-tip">点击曲线上的日期可联动下方名单；区间尾部 1-2 个交易日无未来收益数据。</div>
             </NCard>
-            <NCard title="收盘价排名" size="small">
-              <FactorRankChart :items="stockItems" />
+            <NCard title="调仓换手率 / 入选数" size="small" class="chart-card">
+              <TurnoverBarChart
+                :dates="history.datetime"
+                :turnover="history.turnover"
+                :count="history.count"
+              />
             </NCard>
           </div>
         </template>
-        <NEmpty v-else description="该日无符合条件的股票" class="empty-block" />
+        <NEmpty v-else description="暂无回测数据" class="empty-block" />
       </NSpin>
-    </NCard>
+
+      <NCard :title="`${currentStrategy.name}名单（${currentStrategy.desc}）`" size="small" class="list-card">
+        <div class="list-toolbar">
+          <span class="list-date-label">名单日期</span>
+          <NSelect v-model:value="currentDate" :options="dateOptions" class="date-select" />
+          <span v-if="selectLoading" class="loading-tip">加载中…</span>
+        </div>
+        <NSpin :show="selectLoading">
+          <div v-if="selectError" class="error-tip">{{ selectError }}</div>
+          <template v-else-if="stockItems.length">
+            <NDataTable
+              :columns="stockColumns"
+              :data="stockItems"
+              :row-key="(row) => row.code"
+              size="small"
+              class="stock-table"
+            />
+            <div class="list-charts">
+              <NCard title="行业/指数分布" size="small">
+                <SectorPieChart :items="stockItems" />
+              </NCard>
+              <NCard title="收盘价排名" size="small">
+                <FactorRankChart :items="stockItems" />
+              </NCard>
+            </div>
+          </template>
+          <NEmpty v-else description="该日无符合条件的股票" class="empty-block" />
+        </NSpin>
+      </NCard>
+    </template>
   </div>
 </template>
 
@@ -157,6 +297,17 @@ const columns: DataTableColumns<StockItem> = [
   gap: 12px;
   height: 100%;
   overflow-y: auto;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-title {
+  font-size: 14px;
+  color: #606266;
 }
 
 .stats-row {

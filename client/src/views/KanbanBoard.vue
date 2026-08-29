@@ -200,6 +200,14 @@ watch(
   { flush: 'sync' },
 )
 
+// 收益模式变更 → 模式一表格列（props 传导）与模式二回测/列表统计同步重算
+watch(
+  () => filters.profitMode,
+  (mode) => {
+    void mode2Store.applyProfitMode(mode as 1 | 2 | 3 | 4)
+  },
+)
+
 async function initializeKanban(): Promise<void> {
   try {
     await globalLoading.run(async () => {
@@ -277,7 +285,7 @@ onMounted(() => void initializeKanban())
             style="width: 140px"
           />
         </NFormItem>
-        <NFormItem v-if="board.key === 'factor'" label="收益模式">
+        <NFormItem label="收益模式">
           <NSelect
             v-model:value="filters.profitMode"
             :options="profitModeOptions"
