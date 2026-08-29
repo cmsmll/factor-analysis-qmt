@@ -10,7 +10,7 @@ import Mode2Microcap from '@/views/Mode2Microcap.vue'
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchIndices, fetchSectors } from '@/api/mode1'
 import { createModeFilter, loadCachedFilter, useMode1Store } from '@/stores/mode1'
-import { useMode2Store } from '@/stores/mode2'
+import { PROFIT_MODE_KEY, useMode2Store } from '@/stores/mode2'
 import { useGlobalFilterSelectorStore } from '@/stores/globalFilterSelector'
 import { useGlobalLoadingStore } from '@/stores/globalLoading'
 import { useGlobalMessageStore } from '@/stores/globalMessage'
@@ -207,8 +207,6 @@ watch(
   },
   { flush: 'sync' },
 )
-
-const PROFIT_MODE_KEY = 'mode2-profit-mode'
 
 // 收益模式变更 → 持久化 + 模式一表格列（props 传导）与模式二回测/列表统计同步重算
 watch(

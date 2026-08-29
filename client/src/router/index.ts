@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import KanbanBoard from '@/views/KanbanBoard.vue'
 import Mode1Refine from '@/views/Mode1Refine.vue'
 import Mode1Preview from '@/views/Mode1Preview.vue'
+import Mode2Preview from '@/views/Mode2Preview.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -24,7 +25,7 @@ const router = createRouter({
     {
       path: '/mode2/:id',
       name: 'mode2-preview',
-      component: KanbanBoard,
+      component: Mode2Preview,
     },
     {
       path: '/mode1/:id',

@@ -14,6 +14,9 @@ import type {
 
 const FILTER_CACHE_KEY = 'mode2-filter'
 
+/** 收益模式持久化键（看板过滤区与独立预览页共用）。 */
+export const PROFIT_MODE_KEY = 'mode2-profit-mode'
+
 /** 微盘股预设：市值最小 400 只 → 其中收盘价最低 80 只。 */
 export const MICROCAP_STAGES: Mode2Stage[] = [
   { field: 'TotalMarket', direction: 'Asc', filter: 'None', select: 400 },
