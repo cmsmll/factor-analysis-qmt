@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 
 use crate::db::Bar;
+use salvo_oapi::ToSchema;
 use serde::{Deserialize, Serialize};
 
 /// 排序方向。
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema)]
 pub enum Direction {
     /// 升序（小 → 大）
     Asc,
@@ -16,7 +17,7 @@ pub enum Direction {
 ///
 /// `Less`/`Greater` 为严格比较（不含边界值）；`Equal` 为精确浮点相等，
 /// 对原始价格数据安全，对计算产生的值可能因浮点误差不命中。
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema)]
 pub enum Filter {
     /// 不过滤
     None,
@@ -29,7 +30,7 @@ pub enum Filter {
 }
 
 /// 因子字段。
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema)]
 pub enum Field {
     /// 收盘价
     Close,

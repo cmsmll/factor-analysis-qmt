@@ -18,8 +18,10 @@ use crate::{
     config::Config,
     db::{DataFrame, DataFrameDb},
     router::mode1::manager::Mode1Manager,
+    router::mode2::Mode2Manager,
 };
 
 pub static CONFIG: LazyLock<Config> = LazyLock::new(Config::load_or_gen_default);
 pub static DF: LazyLock<DataFrame> = LazyLock::new(|| DataFrameDb::from_config(&CONFIG).unwrap().query_all().unwrap());
 pub static MODE1: LazyLock<Mode1Manager> = LazyLock::new(|| Mode1Manager::new(&CONFIG.data.cache));
+pub static MODE2: LazyLock<Mode2Manager> = LazyLock::new(|| Mode2Manager::new(&CONFIG.data.cache));

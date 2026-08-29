@@ -34,7 +34,8 @@ pub async fn router() -> Router {
                 .push(Router::with_path("sector").get(sector))
                 .push(Router::with_path("period").get(period))
                 .push(Router::with_path("test").get(test))
-                .push(mode1::mode1_router().await),
+                .push(mode1::mode1_router().await)
+                .push(mode2::mode2_router().await),
         )
         .get(hello)
 }

@@ -1,7 +1,7 @@
 //! Mode1列表数据管理
 use std::{path::Path, sync::Arc};
 
-use serde::{Deserialize, Serialize, Serializer, ser::SerializeSeq};
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tokio::{
     sync::{RwLock, broadcast::Receiver},
@@ -78,7 +78,7 @@ pub struct Mode1Data {
     pub profit2: Vec<Profit>,
     pub profit3: Vec<Profit>,
     pub profit4: Vec<Profit>,
-    #[serde(serialize_with = "serialize_datetime")]
+    #[serde(serialize_with = "crate::toolbox::serde::date_format::serialize_datetime")]
     pub datetime: Vec<Date>,
 }
 
@@ -112,17 +112,6 @@ impl<'a> Details<'a> {
         let s = serde_json::to_string(self).unwrap();
         RawValue::from_string(s).unwrap()
     }
-}
-
-fn serialize_datetime<S>(datetime: &[Date], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let mut seq = serializer.serialize_seq(Some(datetime.len()))?;
-    for date in datetime {
-        seq.serialize_element(&date.to_string())?;
-    }
-    seq.end()
 }
 
 impl Mode1Data {
