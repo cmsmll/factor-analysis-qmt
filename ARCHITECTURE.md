@@ -27,12 +27,17 @@
 │  │            Mode1 (分位分析引擎)               │  │
 │  │  basic / technical / momentum / emotion / risk│  │
 │  └───────────────────┬──────────────────────────┘  │
+│  ┌──────────────────────────────────────────────┐  │
+│  │            Mode2 (因子选股引擎)               │  │
+│  │  operator(排序/过滤/截取) + engine(回测)      │  │
+│  └───────────────────┬──────────────────────────┘  │
 │                      │                              │
 │                      ▼                              │
 │  ┌──────────────────────────────────────────────┐  │
 │  │           Salvo HTTP Router                   │  │
 │  │  /api/period, /api/indice, /api/sector        │  │
 │  │  /api/mode1/list, /api/mode1/{id}             │  │
+│  │  /api/mode2/select, /api/mode2/history        │  │
 │  │  /swagger-ui (OpenAPI)                        │  │
 │  └───────────────────┬──────────────────────────┘  │
 └──────────────────────┼─────────────────────────────┘
@@ -77,14 +82,18 @@ factor-analysis/
 │   ├── model.rs            # Profit 等核心数据模型
 │   ├── router/             # HTTP 路由
 │   │   ├── mod.rs          # 系统级路由（hello, period, indice, sector）
-│   │   └── mode1/          # 模式一：分位因子分析
-│   │       ├── mod.rs      # 路由注册 + 公共参数 Base
-│   │       ├── manager.rs  # Mode1Manager：因子注册/调度
-│   │       ├── basic/      # 基础因子（market_value）
-│   │       ├── emotion/    # 情绪因子（volume, turnover, turnover_rate）
-│   │       ├── momentum/   # 动量因子（pvt, trix_n）
-│   │       ├── risk/       # 风险因子（amplitude）
-│   │       └── technical/  # 技术因子（bbi, bias, cci, ema, macd, mass, sma）
+│   │   ├── mode1/          # 模式一：分位因子分析
+│   │   │   ├── mod.rs      # 路由注册 + 公共参数 Base
+│   │   │   ├── manager.rs  # Mode1Manager：因子注册/调度
+│   │   │   ├── basic/      # 基础因子（market_value）
+│   │   │   ├── emotion/    # 情绪因子（volume, turnover, turnover_rate）
+│   │   │   ├── momentum/   # 动量因子（pvt, trix_n）
+│   │   │   ├── risk/       # 风险因子（amplitude）
+│   │   │   └── technical/  # 技术因子（bbi, bias, cci, ema, macd, mass, sma）
+│   │   └── mode2/          # 模式二：因子选股
+│   │       ├── mod.rs      # Req/SelectReq、Mode2Manager、select/history 端点
+│   │       ├── engine.rs   # 选股引擎（select_at/history）与回测统计
+│   │       └── operator.rs # 排序 → 过滤 → 截取算子
 │   └── toolbox/            # 通用工具
 │       ├── resp.rs         # 统一 JSON 响应类型 Res<T>
 │       ├── macros/         # res!, resolve!, reject! 宏族
@@ -300,6 +309,8 @@ cargo run --release -- run
 | GET | `/api/sector` | 行业板块列表 | 否 |
 | POST | `/api/mode1/list` | 按筛选条件获取所有因子分位值 | 是 |
 | POST | `/api/mode1/{id}` | 获取单个因子指定参数的详情 | 是 |
+| POST | `/api/mode2/select` | 单日因子选股名单 | 是 |
+| POST | `/api/mode2/history` | 区间选股回测（净值/换手/统计） | 是 |
 | POST | `/api/test` | 固定参数测试接口 | 是 |
 | GET | `/api-doc/openapi.json` | OpenAPI 文档 | 否 |
 | GET | `/swagger-ui/` | Swagger UI | 否 |
