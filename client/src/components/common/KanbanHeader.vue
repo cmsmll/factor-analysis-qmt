@@ -6,6 +6,8 @@ defineOptions({ name: 'KanbanHeader' })
 defineProps<{
   title: string
   subtitle: string
+  /** 标题背景渐变（缺省为靛蓝系） */
+  gradient?: string
   /** 上一看板不可达（首块看板） */
   prevDisabled?: boolean
   /** 下一看板不可达（末块看板） */
@@ -16,7 +18,7 @@ const emit = defineEmits<{ (e: 'prev'): void; (e: 'next'): void }>()
 </script>
 
 <template>
-  <header class="page-header">
+  <header class="page-header" :style="gradient ? { background: gradient } : undefined">
     <NButton
       text
       circle
