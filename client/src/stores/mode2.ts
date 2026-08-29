@@ -90,11 +90,15 @@ export const useMode2Store = defineStore('mode2', () => {
   async function applyPool(pool: {
     start: string
     end: string
+    filter_bz: boolean
+    filter_st: boolean
     sector: string[]
     indice: string[]
   }): Promise<void> {
     base.start = pool.start
     base.end = pool.end
+    base.filter_bz = pool.filter_bz
+    base.filter_st = pool.filter_st
     base.sector = [...pool.sector]
     base.indice = [...pool.indice]
     try {

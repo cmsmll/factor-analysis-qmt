@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { NButton, NForm, NFormItem, NInput, NSelect } from 'naive-ui'
+import { NButton, NCheckbox, NForm, NFormItem, NInput, NSelect } from 'naive-ui'
 
 import KanbanHeader from '@/components/common/KanbanHeader.vue'
 import FactorDashboard from '@/views/FactorDashboard.vue'
@@ -130,6 +130,8 @@ function syncMode2(): void {
   void mode2Store.applyPool({
     start: listFilter.start,
     end: listFilter.end,
+    filter_bz: listFilter.filter_bz,
+    filter_st: listFilter.filter_st,
     sector: listFilter.sector,
     indice: listFilter.indice,
   })
@@ -208,6 +210,16 @@ watch(
   },
 )
 
+// ST/北证过滤变更 → 模式一列表与模式二股票池同步刷新
+watch(
+  () => [listFilter.filter_st, listFilter.filter_bz],
+  () => {
+    if (!listFilter.start || !listFilter.end) return
+    void reloadDashboard()
+    syncMode2()
+  },
+)
+
 async function initializeKanban(): Promise<void> {
   try {
     await globalLoading.run(async () => {
@@ -275,6 +287,12 @@ onMounted(() => void initializeKanban())
           <NButton size="small" class="selector-button" @click="selectIndices">
             {{ listFilter.indice.length ? `已选 ${listFilter.indice.length} 项` : '全部指数' }}
           </NButton>
+        </NFormItem>
+        <NFormItem label="过滤ST">
+          <NCheckbox v-model:checked="listFilter.filter_st" />
+        </NFormItem>
+        <NFormItem label="过滤北证">
+          <NCheckbox v-model:checked="listFilter.filter_bz" />
         </NFormItem>
         <NFormItem label="时间周期">
           <NSelect
