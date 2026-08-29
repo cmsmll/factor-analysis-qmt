@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import FactorDashboard from '@/views/FactorDashboard.vue'
 import Mode1Refine from '@/views/Mode1Refine.vue'
 import Mode1Preview from '@/views/Mode1Preview.vue'
+import Mode2Select from '@/views/Mode2Select.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,6 +26,11 @@ const router = createRouter({
       path: '/mode1/:id/refine',
       name: 'mode1-refine',
       component: Mode1Refine,
+    },
+    {
+      path: '/mode2',
+      name: 'mode2',
+      component: Mode2Select,
     },
   ],
 })

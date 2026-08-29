@@ -4,7 +4,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
-import { BarChart, LineChart } from 'echarts/charts'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
 import {
   DataZoomComponent,
@@ -22,6 +22,7 @@ use([
   CanvasRenderer,
   LineChart,
   BarChart,
+  PieChart,
   TitleComponent,
   TooltipComponent,
   LegendComponent,

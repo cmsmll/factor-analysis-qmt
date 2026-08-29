@@ -1,5 +1,5 @@
+import { request } from './client'
 import type {
-  ApiResponse,
   IndicePoint,
   ModeFilter,
   ModeListItem,
@@ -7,19 +7,6 @@ import type {
   Period,
   Mode1Data,
 } from '@/types/mode1'
-
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, init)
-  const payload = (await response.json()) as ApiResponse<T>
-
-  if (!response.ok || payload.code >= 400) {
-    throw new Error(payload.info || `请求失败（${response.status}）`)
-  }
-
-  return payload.data
-}
 
 export async function fetchPeriods(): Promise<Period[]> {
   const data = await request<Period[]>('/api/period')
