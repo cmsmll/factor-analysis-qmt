@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import {
   NButton,
@@ -20,7 +19,6 @@ import {
 } from 'naive-ui'
 
 import { fetchIndices, fetchSectors } from '@/api/mode1'
-import KanbanHeader from '@/components/common/KanbanHeader.vue'
 import FactorRankChart from '@/components/visualization/FactorRankChart.vue'
 import PortfolioNavChart from '@/components/visualization/PortfolioNavChart.vue'
 import SectorPieChart from '@/components/visualization/SectorPieChart.vue'
@@ -31,7 +29,6 @@ import type { Mode2Field, Mode2FilterType, StockItem } from '@/types/mode2'
 
 defineOptions({ name: 'Mode2Select' })
 
-const router = useRouter()
 const store = useMode2Store()
 const filterSelector = useGlobalFilterSelectorStore()
 const {
@@ -195,11 +192,6 @@ async function openIndiceSelector(): Promise<void> {
   if (result) base.indice = result
 }
 
-function switchKanban(step: number) {
-  // 看板方向切换：模式二（当前，末块）→ 模式一（分位分析）。
-  if (step < 0) void router.push({ name: 'mode1' })
-}
-
 onMounted(() => {
   void store.init()
 })
@@ -207,13 +199,6 @@ onMounted(() => {
 
 <template>
   <div class="mode2-layout">
-    <!-- 页首：看板方向切换（左：上一看板，右：下一看板） -->
-    <KanbanHeader
-      title="因子选股可视化显示"
-      subtitle="排序 · 过滤 · 截取前 N · 组合回测"
-      :next-disabled="true"
-      @prev="switchKanban(-1)"
-    />
     <NCard title="选股参数" size="small" class="param-card">
       <NForm inline label-placement="left" size="small">
         <NFormItem label="因子字段">

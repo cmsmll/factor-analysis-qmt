@@ -8,7 +8,7 @@ import GlobalMessage from '@/components/common/GlobalMessage.vue'
 
 <template>
   <RouterView v-slot="{ Component, route }">
-    <KeepAlive include="FactorDashboard">
+    <KeepAlive include="KanbanBoard">
       <component :is="Component" v-if="route.name === 'mode1'" />
     </KeepAlive>
     <component :is="Component" v-if="route.name !== 'mode1'" :key="route.fullPath" />

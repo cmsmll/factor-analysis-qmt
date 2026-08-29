@@ -14,7 +14,6 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 
-import KanbanHeader from '@/components/common/KanbanHeader.vue'
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchIndices, fetchSectors } from '@/api/mode1'
 import { useGlobalLoadingStore } from '@/stores/globalLoading'
@@ -258,11 +257,6 @@ function cloneModeFilter(filter: ModeFilter): ModeFilter {
   }
 }
 
-function switchKanban(step: number) {
-  // 看板方向切换：模式一（当前，首块）→ 模式二（因子选股）。
-  if (step > 0) void router.push({ name: 'mode2' })
-}
-
 function handleSorterChange(
   sorter: { columnKey?: string; order?: 'ascend' | 'descend' | false } | null,
 ) {
@@ -482,14 +476,6 @@ const rowKey = (row: FactorRow) => `${row.id}:${row.sourceIndex}`
 <template>
   <NConfigProvider>
     <div class="factorKanban-layout">
-      <!-- 页首：看板方向切换（左：上一看板，右：下一看板） -->
-      <KanbanHeader
-        title="因子看盘可视化显示"
-        subtitle="多因子量化分析平台"
-        :prev-disabled="true"
-        @next="switchKanban(1)"
-      />
-
       <!-- 筛选区域 -->
       <div class="filter-bar">
         <NForm layout="inline" label-placement="left" size="small">
