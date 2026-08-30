@@ -35,6 +35,7 @@ import { useMode1PreviewStore } from '@/stores/mode1Preview'
 import type {
   CoreArg,
   CoreValue,
+  ModeFilter,
   ModeListItem,
   ModeRequest,
   ProfitMode,
@@ -149,7 +150,15 @@ async function loadPreview() {
   try {
     await globalLoading.run(async () => {
       const cachedParams = loadPreviewParams(modeId.value)
-      if (cachedParams) {
+      // 列表页当前项优先：缓存与本次列表区间不一致时（旧缓存失效），跟随列表并覆盖缓存
+      const current = mode1Store.curr
+      const currentParams =
+        current?.args?.base?.id === modeId.value ? current.args : null
+      const cacheStale =
+        cachedParams !== null &&
+        currentParams !== null &&
+        !sameFilter(cachedParams.base.filter, currentParams.base.filter)
+      if (cachedParams && !cacheStale) {
         requestParams.value = cachedParams
         quantileCount.value = cachedParams.base.count
         setRequestDates(cachedParams)
@@ -161,7 +170,6 @@ async function loadPreview() {
         }
         return
       }
-
       await mode1Store.loadDefaultList()
       if (periodError.value) throw new Error(periodError.value)
       if (listError.value) throw new Error(listError.value)
@@ -208,6 +216,19 @@ function findPreviewSource(): ModeListItem | undefined {
   const found = mode1Store.items.find((item) => item.args.base.id === modeId.value)
   if (found) mode1Store.setCurr(found)
   return found
+}
+
+function sameFilter(left: ModeFilter, right: ModeFilter): boolean {
+  return (
+    left.start === right.start &&
+    left.end === right.end &&
+    left.filter_bz === right.filter_bz &&
+    left.filter_st === right.filter_st &&
+    left.sector.length === right.sector.length &&
+    left.sector.every((item, index) => item === right.sector[index]) &&
+    left.indice.length === right.indice.length &&
+    left.indice.every((item, index) => item === right.indice[index])
+  )
 }
 
 function updateCoreParam(key: string, value: CoreValue | null): void {
