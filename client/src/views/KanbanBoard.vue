@@ -43,7 +43,7 @@ interface ListColumnConfig {
 
 interface ListModeConfig {
   mode: 'mode1' | 'mode2'
-  header: { title: string; subtitle: string; gradient: string }
+  header: { title: string; subtitle: string; gradient: string; shadow: string }
   search: { label: string; placeholder: string }
   columns: ListColumnConfig[]
   footer: string
@@ -181,6 +181,7 @@ const mode1Config: ListModeConfig = {
     title: '因子看盘可视化显示',
     subtitle: '多因子量化分析平台',
     gradient: 'linear-gradient(135deg, #1a237e 0%, #283593 40%, #3949ab 100%)',
+    shadow: '0 4px 20px rgba(26, 35, 126, 0.25)',
   },
   search: { label: '因子搜索', placeholder: '输入因子名称搜索' },
   footer: '因子看板 © 2026',
@@ -274,7 +275,9 @@ const mode2Config: ListModeConfig = {
   header: {
     title: '因子选股可视化显示',
     subtitle: '微盘股 · 市值最小400只 → 收盘价最低80只',
-    gradient: 'linear-gradient(135deg, #1b5e20 0%, #2e7d32 40%, #43a047 100%)',
+    // 参考项目 strength 看板同款红色
+    gradient: 'linear-gradient(135deg, #b71c1c 0%, #d32f2f 45%, #ef5350 100%)',
+    shadow: '0 4px 20px rgba(211, 47, 47, 0.25)',
   },
   search: { label: '策略搜索', placeholder: '输入策略名称搜索' },
   footer: '因子选股 © 2026',
@@ -725,7 +728,10 @@ function handlePageSizeChange(value: number) {
   <NConfigProvider>
     <div class="factorKanban-layout">
       <!-- 标题：背景 + 名称 + 注释 + 左右切换按钮 -->
-      <header class="page-header" :style="{ background: config.header.gradient }">
+      <header
+        class="page-header"
+        :style="{ background: config.header.gradient, boxShadow: config.header.shadow }"
+      >
         <NButton text circle class="header-switch-btn" aria-label="上一看板" @click="switchKanban(-1)">
           <template #icon>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
@@ -877,7 +883,6 @@ function handlePageSizeChange(value: number) {
   align-items: center;
   justify-content: space-between;
   border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(26, 35, 126, 0.25);
   overflow: hidden;
   padding: 28px 32px;
 }
