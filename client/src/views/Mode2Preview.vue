@@ -75,15 +75,17 @@ watch(
       @detail="goDetail()"
     />
 
+    <!-- 统计区独立于图表区（不共容器） -->
+    <div v-if="history" class="stats-header">
+      <div v-for="stat in statItems" :key="stat.label" class="stat-item">
+        <span class="stat-label">{{ stat.label }}</span>
+        <span class="stat-value">{{ stat.value }}</span>
+      </div>
+    </div>
+
     <NSpin :show="historyLoading">
       <div v-if="historyError" class="error-tip">{{ historyError }}</div>
       <template v-else-if="history">
-        <div class="stats-header">
-          <div v-for="stat in statItems" :key="stat.label" class="stat-item">
-            <span class="stat-label">{{ stat.label }}</span>
-            <span class="stat-value">{{ stat.value }}</span>
-          </div>
-        </div>
         <div class="chart-grid">
           <NCard title="组合 / 基准净值" size="small" class="chart-card">
             <PortfolioNavChart
@@ -148,8 +150,8 @@ watch(
 }
 
 .chart-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
