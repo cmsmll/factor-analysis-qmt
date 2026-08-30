@@ -111,15 +111,14 @@ watch(
 </template>
 
 <style scoped>
+/* 与列表页一致：不设高度与溢出，页面随内容增高由浏览器原生滚动 */
 .preview-layout {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 100%;
   padding: 32px;
   max-width: 1440px;
   margin: 0 auto;
-  overflow-y: auto;
 }
 
 .stats-header {
