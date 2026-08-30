@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useRoute, useRouter } from 'vue-router'
 import {
   NCard,
   NCheckbox,
@@ -33,6 +34,15 @@ const dateOptions = computed(() =>
 watch(currentDate, (date) => {
   if (date) void store.loadSelect(date)
 })
+
+// 用户主动切换名单日期 → 同步到 URL query（store 内部赋值（默认日期/query 读入）不写回）
+function onDateChange(date: string | null): void {
+  if (typeof date !== 'string' || !date) return
+  const route = useRoute()
+  const router = useRouter()
+  if (route.query.date === date) return
+  void router.replace({ query: { ...route.query, date } })
+}
 
 function onStFilter(field: 'filter_bz' | 'filter_st', value: boolean): void {
   void store.setStFilter(field, value)
@@ -100,7 +110,12 @@ const columns: DataTableColumns<StockItem> = [
   <NCard :title="`${strategy.name}名单（${strategy.desc}）`" size="small" class="list-card">
     <div class="list-toolbar">
       <span class="list-date-label">名单日期</span>
-      <NSelect v-model:value="currentDate" :options="dateOptions" class="date-select" />
+      <NSelect
+        v-model:value="currentDate"
+        :options="dateOptions"
+        class="date-select"
+        @update:value="onDateChange"
+      />
       <span class="list-date-label">过滤ST</span>
       <NCheckbox :checked="base.filter_st" @update:checked="onStFilter('filter_st', $event)" />
       <span class="list-date-label">过滤北证</span>
