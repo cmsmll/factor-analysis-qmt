@@ -41,6 +41,6 @@ const option = computed<EChartsOption>(() => {
 <style scoped>
 .chart-body {
   width: 100%;
-  height: 240px;
+  height: 360px;
 }
 </style>

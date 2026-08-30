@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { getInstanceByDom } from 'echarts/core'
 import type { EChartsOption } from 'echarts'
 
 defineOptions({ name: 'PortfolioNavChart' })
@@ -11,6 +12,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ (e: 'select-date', date: string): void }>()
+
+const wrapRef = ref<HTMLElement>()
 
 const option = computed<EChartsOption>(() => ({
   tooltip: {
@@ -61,14 +64,40 @@ const option = computed<EChartsOption>(() => ({
   ],
 }))
 
-function onChartClick(params: unknown): void {
-  const axisValue = (params as { axisValue?: string }).axisValue
-  if (axisValue) emit('select-date', axisValue)
+// vue-echarts 事件转发在此环境不可靠：改用原生点击 + ECharts 像素反查日期。
+function onWrapClick(event: MouseEvent): void {
+  const wrap = wrapRef.value
+  const chartDom = wrap?.querySelector<HTMLElement>('.echarts') ?? wrap?.firstElementChild
+  if (!wrap || !chartDom) return
+  const chart = getInstanceByDom(chartDom as HTMLElement)
+  if (!chart) return
+  const rect = wrap.getBoundingClientRect()
+  const point = chart.convertFromPixel(
+    { seriesIndex: 0 },
+    [event.clientX - rect.left, event.clientY - rect.top],
+  )
+  const value = point?.[0]
+  // category 轴 convertFromPixel 返回索引（number），fallback 兼容字符串值
+  if (typeof value === 'number' && props.dates[value]) {
+    emit('select-date', props.dates[value])
+  } else if (typeof value === 'string' && value) {
+    emit('select-date', value)
+  }
 }
+
+onMounted(() => {
+  wrapRef.value?.addEventListener('click', onWrapClick)
+})
+
+onBeforeUnmount(() => {
+  wrapRef.value?.removeEventListener('click', onWrapClick)
+})
 </script>
 
 <template>
-  <VChart class="chart-body" :option="option" autoresize @click="onChartClick" />
+  <div ref="wrapRef" class="chart-body">
+    <VChart :option="option" autoresize />
+  </div>
 </template>
 
 <style scoped>

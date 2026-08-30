@@ -2,6 +2,7 @@ import { computed, reactive, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 
 import { fetchMode2History, fetchMode2Select } from '@/api/mode2'
+import { loadCachedFilter, useMode1Store } from '@/stores/mode1'
 import type { ModeFilter } from '@/types/mode1'
 import type {
   HistoryParams,
@@ -146,6 +147,41 @@ export const useMode2Store = defineStore('mode2', () => {
     await loadHistory()
   }
 
+  /** 独立页直达/刷新：从持久化恢复股票池与收益模式；无缓存时取第一个周期为默认池。 */
+  async function ensureContext(): Promise<void> {
+    if (!base.start || !base.end) {
+      const cached = loadCachedFilter()
+      if (cached?.start && cached?.end) {
+        await applyPool({
+          start: cached.start,
+          end: cached.end,
+          filter_bz: cached.filter_bz ?? false,
+          filter_st: cached.filter_st ?? false,
+          sector: cached.sector ?? [],
+          indice: cached.indice ?? [],
+        })
+      } else {
+        const mode1Store = useMode1Store()
+        await mode1Store.loadPeriods()
+        const period = mode1Store.periods[0]
+        if (period) {
+          await applyPool({
+            start: period.start,
+            end: period.end,
+            filter_bz: false,
+            filter_st: false,
+            sector: [],
+            indice: [],
+          })
+        }
+      }
+    }
+    const savedMode = Number(localStorage.getItem(PROFIT_MODE_KEY) ?? '')
+    if (Number.isInteger(savedMode) && savedMode >= 1 && savedMode <= 4) {
+      await applyProfitMode(savedMode as 1 | 2 | 3 | 4)
+    }
+  }
+
   /** 预览页 ST/北证过滤切换：刷新列表统计与当前策略回测/名单。 */
   async function setStFilter(field: 'filter_bz' | 'filter_st', value: boolean): Promise<void> {
     if (base[field] === value) return
@@ -245,6 +281,7 @@ export const useMode2Store = defineStore('mode2', () => {
     applyProfitMode,
     selectStrategy,
     setStFilter,
+    ensureContext,
     loadListStats,
     loadHistory,
     loadSelect,
