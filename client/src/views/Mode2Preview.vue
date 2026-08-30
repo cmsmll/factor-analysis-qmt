@@ -2,7 +2,7 @@
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { NCard, NEmpty, NSpin, NStatistic } from 'naive-ui'
+import { NCard, NEmpty, NSpin } from 'naive-ui'
 
 import PageTitleBar from '@/components/common/PageTitleBar.vue'
 import PortfolioNavChart from '@/components/visualization/PortfolioNavChart.vue'
@@ -40,6 +40,15 @@ const previewAvgCount = computed(() => {
   return counts.length ? counts.reduce((sum, value) => sum + value, 0) / counts.length : 0
 })
 
+// 统计项：百分比两位小数；平均入选数为整数（与 mode1 stats-header 布局一致）
+const statItems = computed(() => [
+  { label: '总收益', value: `${((stats.value?.total_profit ?? 0) * 100).toFixed(2)}%` },
+  { label: '年化收益', value: `${((stats.value?.annualized ?? 0) * 100).toFixed(2)}%` },
+  { label: '最大回撤', value: `${((stats.value?.max_drawdown ?? 0) * 100).toFixed(2)}%` },
+  { label: '胜率', value: `${((stats.value?.win_rate ?? 0) * 100).toFixed(2)}%` },
+  { label: '平均入选数', value: String(Math.round(previewAvgCount.value)) },
+])
+
 // 预览路由参数（策略 id）→ 恢复上下文并加载该策略回测（结果按 id 缓存）
 watch(
   () => route.params.id,
@@ -69,15 +78,12 @@ watch(
     <NSpin :show="historyLoading">
       <div v-if="historyError" class="error-tip">{{ historyError }}</div>
       <template v-else-if="history">
-        <NCard title="回测统计" size="small" class="stats-card">
-          <div class="stats-row">
-            <NStatistic label="总收益" :value="(stats?.total_profit ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="年化收益" :value="(stats?.annualized ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="最大回撤" :value="(stats?.max_drawdown ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="胜率" :value="(stats?.win_rate ?? 0) * 100" precision="2" suffix="%" />
-            <NStatistic label="平均入选数" :value="previewAvgCount" precision="0" />
+        <div class="stats-header">
+          <div v-for="stat in statItems" :key="stat.label" class="stat-item">
+            <span class="stat-label">{{ stat.label }}</span>
+            <span class="stat-value">{{ stat.value }}</span>
           </div>
-        </NCard>
+        </div>
         <div class="chart-grid">
           <NCard title="组合 / 基准净值" size="small" class="chart-card">
             <PortfolioNavChart
@@ -114,10 +120,31 @@ watch(
   overflow-y: auto;
 }
 
-.stats-row {
+.stats-header {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-item {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   display: flex;
-  flex-wrap: wrap;
-  gap: 32px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: rgb(31, 34, 37);
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: rgb(31, 34, 37);
 }
 
 .chart-grid {
