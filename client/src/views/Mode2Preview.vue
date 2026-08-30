@@ -67,7 +67,7 @@ watch(
 </script>
 
 <template>
-  <div class="preview-layout">
+  <div class="mode2-preview">
     <!-- 页首：复用统一 PageTitleBar（返回 + 标题 + 明细按钮进入第三级明细页） -->
     <PageTitleBar
       :title="`${currentStrategy.name} · ${currentStrategy.desc}`"
@@ -112,7 +112,7 @@ watch(
 
 <style scoped>
 /* 与列表页一致：不设高度与溢出，页面随内容增高由浏览器原生滚动 */
-.preview-layout {
+.mode2-preview {
   display: flex;
   flex-direction: column;
   gap: 12px;

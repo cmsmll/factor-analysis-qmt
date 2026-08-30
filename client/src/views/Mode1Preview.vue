@@ -42,6 +42,8 @@ import type {
 } from '@/types/mode1'
 import { formatDate } from '@/utils/factorSeries'
 
+defineOptions({ name: 'Mode1Preview' })
+
 const route = useRoute()
 const router = useRouter()
 const mode1Store = useMode1Store()
@@ -395,7 +397,7 @@ function goBack() {
 </script>
 
 <template>
-  <div class="visualization-layout">
+  <div class="mode1-preview">
     <!-- 页首 -->
     <PageTitleBar
       :title="routeFactorName || factorDetail.factorName"
@@ -486,7 +488,7 @@ function goBack() {
               type="date"
               size="small"
               :clearable="false"
-              to=".visualization-layout"
+              to=".mode1-preview"
             >
               <template #now>
                 <NButton size="tiny" class="date-reset-btn" @click.stop.prevent="resetStartDate">
@@ -499,7 +501,7 @@ function goBack() {
               type="date"
               size="small"
               :clearable="false"
-              to=".visualization-layout"
+              to=".mode1-preview"
             >
               <template #now>
                 <NButton size="tiny" class="date-reset-btn" @click.stop.prevent="resetEndDate">
@@ -560,7 +562,7 @@ function goBack() {
 </template>
 
 <style scoped>
-.visualization-layout {
+.mode1-preview {
   padding: 24px 32px;
   display: flex;
   flex-direction: column;
