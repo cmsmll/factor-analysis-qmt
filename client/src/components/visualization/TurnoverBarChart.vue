@@ -13,8 +13,31 @@ const props = defineProps<{
 const option = computed<EChartsOption>(() => ({
   tooltip: { trigger: 'axis' },
   legend: { data: ['调仓换手率', '入选数'], top: 0 },
-  grid: { left: 8, right: 16, top: 36, bottom: 24, containLabel: true },
+  grid: { left: 8, right: 16, top: 36, bottom: 40, containLabel: true },
   xAxis: { type: 'category', data: props.dates },
+  dataZoom: [
+    { type: 'inside', start: 0, end: 100 },
+    {
+      type: 'slider',
+      height: 8,
+      bottom: 10,
+      disabled: true,
+      showDetail: false,
+      showDataShadow: false,
+      brushSelect: false,
+      handleSize: 0,
+      moveHandleSize: 0,
+      borderColor: 'transparent',
+      backgroundColor: '#edf1f7',
+      fillerColor: '#8aa4d6',
+      handleStyle: { opacity: 0 },
+      moveHandleStyle: { opacity: 0 },
+      emphasis: {
+        handleStyle: { opacity: 0 },
+        moveHandleStyle: { opacity: 0 },
+      },
+    },
+  ],
   yAxis: [
     { type: 'value', name: '换手率', max: 1, axisLabel: { formatter: (value: number) => `${(value * 100).toFixed(2)}%` } },
     { type: 'value', name: '入选数', splitLine: { show: false } },

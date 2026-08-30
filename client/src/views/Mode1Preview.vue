@@ -17,6 +17,7 @@ import {
   zhCN,
 } from 'naive-ui'
 
+import PageTitleBar from '@/components/common/PageTitleBar.vue'
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchIndices, fetchSectors } from '@/api/mode1'
 import DecayChart from '@/components/visualization/DecayChart.vue'
@@ -396,42 +397,12 @@ function goBack() {
 <template>
   <div class="visualization-layout">
     <!-- 页首 -->
-    <div class="page-title-bar">
-      <NButton text size="small" @click="goBack" class="back-btn">
-        <template #icon>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="back-icon">
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="48"
-              d="M244 400L100 256l144-144"
-            ></path>
-            <path
-              fill="none"
-              stroke="currentColor"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="48"
-              d="M120 256h292"
-            ></path>
-          </svg>
-        </template>
-        返回
-      </NButton>
-      <h2 class="factor-title" :title="routeFactorInfo">
-        {{ routeFactorName || factorDetail.factorName }}
-      </h2>
-      <NButton
-        text
-        size="small"
-        class="detail-btn"
-        @click="void router.push({ name: 'mode1-refine', params: { id: modeId } })"
-      >
-        明细
-      </NButton>
-    </div>
+    <PageTitleBar
+      :title="routeFactorName || factorDetail.factorName"
+      :title-tip="routeFactorInfo"
+      @back="goBack"
+      @detail="void router.push({ name: 'mode1-refine', params: { id: modeId } })"
+    />
 
     <div v-if="previewFilter" class="filter-bar">
       <NForm layout="inline" label-placement="left" size="small">
@@ -594,36 +565,6 @@ function goBack() {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.page-title-bar {
-  display: flex;
-  align-items: center;
-  background: #fff;
-  padding: 14px 24px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  gap: 16px;
-}
-
-.back-btn {
-  flex-shrink: 0;
-  color: var(--n-text-color);
-  font-size: 13px;
-}
-
-.back-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.factor-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #1a237e;
-  flex: 1;
-  text-align: center;
 }
 
 .reload-form-item {

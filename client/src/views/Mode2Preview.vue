@@ -3,7 +3,6 @@ import { computed, h, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import {
-  NButton,
   NCard,
   NCheckbox,
   NDataTable,
@@ -15,11 +14,12 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 
+import PageTitleBar from '@/components/common/PageTitleBar.vue'
 import FactorRankChart from '@/components/visualization/FactorRankChart.vue'
 import PortfolioNavChart from '@/components/visualization/PortfolioNavChart.vue'
 import SectorPieChart from '@/components/visualization/SectorPieChart.vue'
 import TurnoverBarChart from '@/components/visualization/TurnoverBarChart.vue'
-import { loadCachedFilter } from '@/stores/mode1'
+import { loadCachedFilter, useMode1Store } from '@/stores/mode1'
 import { MODE2_STRATEGIES, PROFIT_MODE_KEY, uniqueDates, useMode2Store } from '@/stores/mode2'
 import type { StockItem } from '@/types/mode2'
 
@@ -52,7 +52,7 @@ function onStFilter(field: 'filter_bz' | 'filter_st', value: boolean): void {
   void store.setStFilter(field, value)
 }
 
-// 独立页直达/刷新：从持久化过滤恢复股票池与收益模式（对齐 mode1 预览的参数恢复）
+// 独立页直达/刷新：从持久化过滤恢复股票池与收益模式；无缓存时取第一个周期为默认池
 async function ensureContext(): Promise<void> {
   if (!base.value.start || !base.value.end) {
     const cached = loadCachedFilter()
@@ -65,6 +65,21 @@ async function ensureContext(): Promise<void> {
         sector: cached.sector ?? [],
         indice: cached.indice ?? [],
       })
+    } else {
+      // 无持久化缓存：加载周期配置，取第一个周期作为默认股票池
+      const mode1Store = useMode1Store()
+      await mode1Store.loadPeriods()
+      const period = mode1Store.periods[0]
+      if (period) {
+        await store.applyPool({
+          start: period.start,
+          end: period.end,
+          filter_bz: false,
+          filter_st: false,
+          sector: [],
+          indice: [],
+        })
+      }
     }
   }
   const savedMode = Number(localStorage.getItem(PROFIT_MODE_KEY) ?? '')
@@ -148,10 +163,12 @@ const stockColumns: DataTableColumns<StockItem> = [
 
 <template>
   <div class="preview-layout">
-    <div class="preview-toolbar">
-      <NButton size="small" @click="backToList">← 返回列表</NButton>
-      <span class="preview-title">{{ currentStrategy.name }} · {{ currentStrategy.desc }}</span>
-    </div>
+    <!-- 页首：复用统一 PageTitleBar（返回 + 标题；mode2 无明细页） -->
+    <PageTitleBar
+      :title="`${currentStrategy.name} · ${currentStrategy.desc}`"
+      :show-detail="false"
+      @back="backToList"
+    />
 
     <NSpin :show="historyLoading">
       <div v-if="historyError" class="error-tip">{{ historyError }}</div>
@@ -232,17 +249,6 @@ const stockColumns: DataTableColumns<StockItem> = [
   max-width: 1440px;
   margin: 0 auto;
   overflow-y: auto;
-}
-
-.preview-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.preview-title {
-  font-size: 14px;
-  color: #606266;
 }
 
 .stats-row {
