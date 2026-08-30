@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, watch } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
   NCard,
@@ -43,6 +43,23 @@ function formatFactor(value: number): string {
   if (abs >= 1e8) return `${(value / 1e8).toFixed(2)} 亿`
   if (abs >= 1e4) return `${(value / 1e4).toFixed(2)} 万`
   return value.toFixed(2)
+}
+
+const expandedKeys = ref<Array<string | number>>([])
+
+function onRowClick(row: StockItem): void {
+  const key = row.code
+  expandedKeys.value = expandedKeys.value.includes(key)
+    ? expandedKeys.value.filter((item) => item !== key)
+    : [...expandedKeys.value, key]
+}
+
+// 整行鼠标悬浮显示小手
+function rowProps(row: StockItem) {
+  return {
+    style: { cursor: 'pointer' },
+    onClick: () => onRowClick(row),
+  }
 }
 
 const columns: DataTableColumns<StockItem> = [
@@ -94,9 +111,11 @@ const columns: DataTableColumns<StockItem> = [
       <div v-if="selectError" class="error-tip">{{ selectError }}</div>
       <template v-else-if="stockItems.length">
         <NDataTable
+          v-model:expanded-row-keys="expandedKeys"
           :columns="columns"
           :data="stockItems"
           :row-key="(row) => row.code"
+          :row-props="rowProps"
           size="small"
           class="stock-table"
         />
