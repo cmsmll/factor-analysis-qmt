@@ -306,6 +306,7 @@ mod tests {
             finance: Finance {
                 total_market: close,
                 dividend_yield: close / 100.0,
+                ..Finance::default()
             },
             profit,
         }

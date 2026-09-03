@@ -49,6 +49,16 @@ struct MarketRow {
     is_st: bool,
     #[serde(default)]
     total_market: f64,
+    #[serde(default)]
+    total_shares: Option<f64>,
+    #[serde(default)]
+    float_shares: Option<f64>,
+    #[serde(default)]
+    float_market: Option<f64>,
+    #[serde(default)]
+    du_profit_rate: Option<f64>,
+    #[serde(default)]
+    inc_net_profit_rate: Option<f64>,
 }
 
 impl MarketRow {
@@ -69,6 +79,11 @@ impl MarketRow {
             finance: Finance {
                 total_market: self.total_market,
                 dividend_yield: self.dividend_yield,
+                total_shares: self.total_shares,
+                float_shares: self.float_shares,
+                float_market: self.float_market,
+                du_profit_rate: self.du_profit_rate,
+                inc_net_profit_rate: self.inc_net_profit_rate,
             },
             profit: [0.0; 5],
         }

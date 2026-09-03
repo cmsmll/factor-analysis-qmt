@@ -227,7 +227,7 @@ mod tests {
                 turnover: 0.0,
                 is_st: false,
             },
-            finance: Finance { total_market: 0.0, dividend_yield: 0.0 },
+            finance: Finance { total_market: 0.0, dividend_yield: 0.0, ..Finance::default() },
             profit: [0.0; 5],
         }
     }

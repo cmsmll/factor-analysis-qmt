@@ -115,9 +115,9 @@ function rateCell(value: number | undefined) {
   return h('span', { style: { color: rateColor(value) } }, formatPercent(value))
 }
 
-// 换手率列：后端已是百分比数值（如 2.29 即 2.29%），不再 ×100
+// 换手率列：后端为小数（如 0.0229 即 2.29%），显示需 ×100
 function turnoverCell(value: number | undefined) {
-  const text = value === undefined || !Number.isFinite(value) ? '--' : `${value.toFixed(2)}%`
+  const text = value === undefined || !Number.isFinite(value) ? '--' : `${(value * 100).toFixed(2)}%`
   return h('span', text)
 }
 

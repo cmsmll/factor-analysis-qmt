@@ -100,7 +100,7 @@ const columns: DataTableColumns<StockItem> = [
     renderExpand: (row: StockItem) =>
       h('div', { class: 'expand-row' }, [
         `开盘 ${row.open.toFixed(2)}｜最高 ${row.high.toFixed(2)}｜最低 ${row.low.toFixed(2)}｜收盘 ${row.close.toFixed(2)}｜`,
-        `成交量 ${formatFactor(row.volume)}｜成交额 ${formatFactor(row.amount)}｜换手率 ${row.turnover.toFixed(2)}%`,
+        `成交量 ${formatFactor(row.volume)}｜成交额 ${formatFactor(row.amount)}｜换手率 ${(row.turnover * 100).toFixed(2)}%`,
       ]),
   },
 ]

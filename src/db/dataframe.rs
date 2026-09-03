@@ -215,7 +215,11 @@ mod tests {
                         turnover: 0.0,
                         is_st: false,
                     },
-                    finance: Finance { total_market: 0.0, dividend_yield: 0.0 },
+                    finance: Finance {
+                        total_market: 0.0,
+                        dividend_yield: 0.0,
+                        ..Finance::default()
+                    },
                     profit: [0.1, 0.2, 0.3, 0.4, 0.5],
                 })
                 .collect(),
@@ -264,7 +268,11 @@ mod tests {
                 turnover: 0.0,
                 is_st: false,
             },
-            finance: Finance { total_market: 2_000.0, dividend_yield: 0.0 },
+            finance: Finance {
+                total_market: 2_000.0,
+                dividend_yield: 0.0,
+                ..Finance::default()
+            },
             profit: [0.1, 0.2, 0.3, 0.4, 0.5],
         }]);
         contract.table = contract

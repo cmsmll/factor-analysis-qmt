@@ -41,14 +41,29 @@ impl Market {
     }
 }
 
-/// 新数据源中财务字段与行情合并于同一行，`total_market`（总市值）与 `dividend_yield`（股息率）被因子使用。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 新数据源中财务字段与行情合并于同一行；新增股本与同比字段可能为 `null`（`Option<f64>`）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Finance {
-    /// 总市值（单位：元）
-    pub total_market: f64,
-    /// 股息率（百分比）
+    // 股息率（百分比）
     #[serde(default)]
     pub dividend_yield: f64,
+    /// 总市值（单位：元）
+    pub total_market: f64,
+    /// 总股本（单位：股）
+    #[serde(default)]
+    pub total_shares: Option<f64>,
+    /// 流通股本（单位：股）
+    #[serde(default)]
+    pub float_shares: Option<f64>,
+    /// 流通市值（单位：元）
+    #[serde(default)]
+    pub float_market: Option<f64>,
+    /// 净利润同比增长（百分比），对应迅投 PERSHAREINDEX.du_profit_rate
+    #[serde(default)]
+    pub du_profit_rate: Option<f64>,
+    /// 归母净利润同比增长（百分比），对应迅投 PERSHAREINDEX.inc_net_profit_rate
+    #[serde(default)]
+    pub inc_net_profit_rate: Option<f64>,
 }
 
 /// 单交易日数据：行情 + 财务 + 未来收益。
@@ -130,7 +145,11 @@ mod tests {
     fn bar_aggregates_market_and_finance() {
         let bar = Bar {
             market: market("2025-01-01", false),
-            finance: Finance { total_market: 1_000.0, dividend_yield: 0.5 },
+            finance: Finance {
+                total_market: 1_000.0,
+                dividend_yield: 0.5,
+                ..Finance::default()
+            },
             profit: [0.0; 5],
         };
 
