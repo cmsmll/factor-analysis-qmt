@@ -71,8 +71,8 @@ watch(
     <!-- 页首：复用统一 PageTitleBar（返回 + 标题 + 明细按钮进入第三级明细页） -->
     <PageTitleBar
       :title="`${currentStrategy.name} · ${currentStrategy.desc}`"
+      :show-detail="false"
       @back="backToList"
-      @detail="goDetail()"
     />
 
     <!-- 统计区独立于图表区（不共容器） -->

@@ -6,20 +6,27 @@ use salvo::{Router, Writer};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Receiver;
+use time::Date;
 
 use crate::{
     math::dev,
     prelude::*,
     reject, resolve,
     resp::Resp,
-    router::mode1::{Base, validate_period},
+    router::mode1::{
+        Base,
+        manager::{day_value, detail_filter, resolve_detail_date, DetailRow},
+        validate_period,
+    },
     toolbox::VJson,
 };
 
 /// 注册 26 日 CR 指标因子。
 pub async fn router() -> Router {
     MODE1.register(Arc::new(|filter| Req::register(filter, 26))).await;
-    Router::with_path(Req::id()).post(cr_n)
+    Router::with_path(Req::id())
+        .post(cr_n)
+        .push(Router::with_path("detail").post(cr_n_detail))
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
@@ -70,6 +77,19 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
+/// CR 指标单日明细请求：因子参数 + 可选目标日期（缺省取筛选区间末交易日）。
+#[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct DetailReq {
+    #[serde(flatten)]
+    #[validate(nested)]
+    req: Req,
+    /// 目标日期 `YYYY-MM-DD`
+    #[serde(default, with = "crate::toolbox::serde::date_format::opt")]
+    date: Option<Date>,
+}
+
+impl ArgsHandle for DetailReq {}
+
 /// 按 N 日 CR 指标进行分位分析。
 #[endpoint(
     tags("模式一"),
@@ -84,6 +104,25 @@ impl ArgsHandle for Req {}
 pub async fn cr_n(args: VJson<Req>) -> Resp<Arc<RawValue>> {
     let key = args.0.hashcode();
     match MODE1.cache.get_or_run(key, move || cr_n_run(args.0)).recv().await {
+        Ok(res) => resolve!(res => 200, "ok"),
+        Err(_) => reject!(400, "获取数据失败"),
+    }
+}
+
+/// 执行 CR 指标目标日单日分位明细查询。
+///
+/// # Route
+///
+/// `POST /api/mode1/{factor_id}/detail`
+///
+/// 请求体为 [`DetailReq`]：在 [`Req`] 基础上可带目标日期 `date`（`YYYY-MM-DD`），
+/// 缺省取筛选区间末交易日。预热 = `core.period` 个交易日：从 `date` 前 `period`
+/// 个交易日开始喂 CrWindow，保证目标日的 CR 值与主分析口径一致（CR 只依赖最近
+/// `period` 个交易日的分子分母窗口）。
+#[endpoint]
+pub async fn cr_n_detail(args: VJson<DetailReq>) -> Resp<Arc<RawValue>> {
+    let key = args.0.hashcode();
+    match MODE1.details.get_or_run(key, move || cr_n_detail_run(args.0)).recv().await {
         Ok(res) => resolve!(res => 200, "ok"),
         Err(_) => reject!(400, "获取数据失败"),
     }
@@ -116,6 +155,33 @@ fn cr_n_run(args: Req) -> Box<RawValue> {
     }
 
     result.raw_value()
+}
+
+/// 计算目标日单日分位明细：预热 = `core.period` 个交易日，把
+/// `date` 前 `period` 日起的整个窗口喂给 CrWindow（与主分析相同的守卫与推进顺序），
+/// 仅目标日收集结果行。
+fn cr_n_detail_run(args: DetailReq) -> Box<RawValue> {
+    let period = args.req.core.period.value;
+    let count = args.req.base.count;
+    let date = resolve_detail_date(args.date, &args.req.base.filter);
+    let df = DF.filter(&detail_filter(&args.req.base.filter, date, period));
+    let mut store = vec![CrWindow::new(period); df.list.len()];
+    let mut rows: Vec<DetailRow> = Vec::with_capacity(df.list.len());
+
+    for index in df.index_iter() {
+        let is_target = index.datetime == date;
+        for (item, store) in df.list.iter().zip(store.iter_mut()) {
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
+                && curr.filter_st(args.req.base.filter_st)
+                && let Some(factor) = store.next(curr.high, curr.low, curr.close)
+            {
+                if is_target {
+                    rows.push(DetailRow::new(&item.metadata, curr, finance, factor, profit));
+                }
+            }
+        }
+    }
+    day_value(date, count, rows)
 }
 
 /// CR 滑动累加窗口：分子 Σ(H-昨日中间价)，分母 Σ(昨日中间价-L)。

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use salvo::{Router, Writer};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
+use time::Date;
 use tokio::sync::broadcast::Receiver;
 
 use crate::{
@@ -12,7 +13,11 @@ use crate::{
     prelude::*,
     reject, resolve,
     resp::Resp,
-    router::mode1::{Base, validate_period},
+    router::mode1::{
+        Base,
+        manager::{day_value, detail_filter, resolve_detail_date, DetailRow},
+        validate_period,
+    },
     toolbox::VJson,
 };
 
@@ -75,7 +80,11 @@ pub async fn router() -> Router {
     ] {
         MODE1.register(Arc::new(move |filter| Req::register(filter, kind.window(), kind))).await;
     }
-    Router::new().push(Router::with_path(Req::id()).post(vol_stat))
+    Router::new().push(
+        Router::with_path(Req::id())
+            .post(vol_stat)
+            .push(Router::with_path("detail").post(vol_stat_detail)),
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
@@ -129,6 +138,19 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
+/// 量能统计因子单日明细请求：因子参数 + 可选目标日期（缺省取筛选区间末交易日）。
+#[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct DetailReq {
+    #[serde(flatten)]
+    #[validate(nested)]
+    req: Req,
+    /// 目标日期 `YYYY-MM-DD`
+    #[serde(default, with = "crate::toolbox::serde::date_format::opt")]
+    date: Option<Date>,
+}
+
+impl ArgsHandle for DetailReq {}
+
 /// 按量能统计指标进行分位分析。
 #[endpoint(
     tags("模式一"),
@@ -143,6 +165,20 @@ impl ArgsHandle for Req {}
 pub async fn vol_stat(args: VJson<Req>) -> Resp<Arc<RawValue>> {
     let key = args.0.hashcode();
     match MODE1.cache.get_or_run(key, move || vol_stat_run(args.0)).recv().await {
+        Ok(res) => resolve!(res => 200, "ok"),
+        Err(_) => reject!(400, "获取数据失败"),
+    }
+}
+
+/// 执行量能统计因子目标日单日分位明细查询。
+///
+/// 预热按类型区分：Roc6/Roc12 仅依赖前一交易日的成交量（warmup = 2）；
+/// Osc/StdVol10/StdVol20/StdAmt6/StdAmt20/Tvma6 依赖 `kind.window()` 长度的
+/// WindowStats（warmup = `kind.window()`），与主分析口径一致。
+#[endpoint]
+pub async fn vol_stat_detail(args: VJson<DetailReq>) -> Resp<Arc<RawValue>> {
+    let key = args.0.hashcode();
+    match MODE1.details.get_or_run(key, move || vol_stat_detail_run(args.0)).recv().await {
         Ok(res) => resolve!(res => 200, "ok"),
         Err(_) => reject!(400, "获取数据失败"),
     }
@@ -188,4 +224,47 @@ fn vol_stat_run(args: Req) -> Box<RawValue> {
     }
 
     result.raw_value()
+}
+
+/// 计算目标日单日分位明细：Roc6/Roc12 预热 2 个交易日（仅需前一日成交量），其余预热
+/// `kind.window()` 个交易日推进 WindowStats；仅收集目标日当天分位行。
+fn vol_stat_detail_run(args: DetailReq) -> Box<RawValue> {
+    let kind = args.req.core.kind;
+    let count = args.req.base.count;
+    let date = resolve_detail_date(args.date, &args.req.base.filter);
+    let warmup = match kind {
+        VolStatKind::Roc6 | VolStatKind::Roc12 => 2,
+        _ => kind.window(),
+    };
+    let df = DF.filter(&detail_filter(&args.req.base.filter, date, warmup));
+    let mut stats = vec![WindowStats::new(kind.window()); df.list.len()];
+    let mut prev_vol = vec![0.0f64; df.list.len()];
+    let mut rows: Vec<DetailRow> = Vec::with_capacity(df.list.len());
+
+    for index in df.index_iter() {
+        let is_target = index.datetime == date;
+        for (item, (stats, prev_vol)) in df.list.iter().zip(stats.iter_mut().zip(prev_vol.iter_mut())) {
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
+                && curr.filter_st(args.req.base.filter_st)
+            {
+                let factor = match kind {
+                    VolStatKind::Roc6 | VolStatKind::Roc12 => {
+                        let prev = *prev_vol;
+                        *prev_vol = curr.volume;
+                        (prev != 0.0).then_some(dev(curr.volume - prev, prev) * 100.0)
+                    }
+                    VolStatKind::Osc => stats.mean(curr.volume).map(|mean| dev(curr.volume - mean, mean) * 100.0),
+                    VolStatKind::StdVol10 | VolStatKind::StdVol20 => stats.std(curr.volume),
+                    VolStatKind::StdAmt6 | VolStatKind::StdAmt20 => stats.std(curr.amount),
+                    VolStatKind::Tvma6 => stats.mean(curr.volume * curr.close),
+                };
+                if let Some(factor) = factor {
+                    if is_target {
+                        rows.push(DetailRow::new(&item.metadata, curr, finance, factor, profit));
+                    }
+                }
+            }
+        }
+    }
+    day_value(date, count, rows)
 }

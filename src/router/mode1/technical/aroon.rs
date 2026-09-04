@@ -5,13 +5,17 @@ use std::sync::Arc;
 use salvo::{Router, Writer};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
+use time::Date;
 use tokio::sync::broadcast::Receiver;
 
 use crate::{
     prelude::*,
     reject, resolve,
     resp::Resp,
-    router::mode1::{Base, validate_period},
+    router::mode1::{
+        Base, validate_period,
+        manager::{day_value, detail_filter, resolve_detail_date, DetailRow},
+    },
     toolbox::VJson,
 };
 
@@ -38,7 +42,11 @@ pub async fn router() -> Router {
     for band in [AroonBand::Upper, AroonBand::Lower] {
         MODE1.register(Arc::new(move |filter| Req::register(filter, 25, band))).await;
     }
-    Router::new().push(Router::with_path(Req::id()).post(aroon))
+    Router::new().push(
+        Router::with_path(Req::id())
+            .post(aroon)
+            .push(Router::with_path("detail").post(aroon_detail)),
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
@@ -92,6 +100,19 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
+/// Aroon 因子单日明细请求：因子参数 + 可选目标日期（缺省取筛选区间末交易日）。
+#[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct DetailReq {
+    #[serde(flatten)]
+    #[validate(nested)]
+    req: Req,
+    /// 目标日期 `YYYY-MM-DD`
+    #[serde(default, with = "crate::toolbox::serde::date_format::opt")]
+    date: Option<Date>,
+}
+
+impl ArgsHandle for DetailReq {}
+
 /// 按 N 日 Aroon 轨道值进行分位分析。
 #[endpoint(
     tags("模式一"),
@@ -106,6 +127,24 @@ impl ArgsHandle for Req {}
 pub async fn aroon(args: VJson<Req>) -> Resp<Arc<RawValue>> {
     let key = args.0.hashcode();
     match MODE1.cache.get_or_run(key, move || aroon_run(args.0)).recv().await {
+        Ok(res) => resolve!(res => 200, "ok"),
+        Err(_) => reject!(400, "获取数据失败"),
+    }
+}
+
+/// 执行 Aroon 因子目标日单日分位明细查询。
+///
+/// # Route
+///
+/// `POST /api/mode1/{factor_id}/detail`
+///
+/// 请求体为 [`DetailReq`]：在 [`Req`] 基础上可带目标日期 `date`（`YYYY-MM-DD`），
+/// 缺省取筛选区间末交易日。预热 = `core.period` 个交易日：从 `date` 前 `period` 个交易日
+/// 开始喂 Aroon 窗口，保证目标日的轨道值与主分析口径一致。
+#[endpoint]
+pub async fn aroon_detail(args: VJson<DetailReq>) -> Resp<Arc<RawValue>> {
+    let key = args.0.hashcode();
+    match MODE1.details.get_or_run(key, move || aroon_detail_run(args.0)).recv().await {
         Ok(res) => resolve!(res => 200, "ok"),
         Err(_) => reject!(400, "获取数据失败"),
     }
@@ -142,6 +181,35 @@ fn aroon_run(args: Req) -> Box<RawValue> {
     }
 
     result.raw_value()
+}
+
+/// 计算目标日单日分位明细：预热 = `period` 个交易日，推进窗口后仅收集目标日当天的 Aroon 值。
+fn aroon_detail_run(args: DetailReq) -> Box<RawValue> {
+    let period = args.req.core.period.value;
+    let band = args.req.core.band;
+    let count = args.req.base.count;
+    let date = resolve_detail_date(args.date, &args.req.base.filter);
+    let df = DF.filter(&detail_filter(&args.req.base.filter, date, period));
+    let mut store = vec![AroonWindow::new(period); df.list.len()];
+    let mut rows: Vec<DetailRow> = Vec::with_capacity(df.list.len());
+
+    for index in df.index_iter() {
+        let is_target = index.datetime == date;
+        for (item, store) in df.list.iter().zip(store.iter_mut()) {
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
+                && curr.filter_st(args.req.base.filter_st)
+                && let Some(factor) = store.next(curr.high, curr.low).map(|(up, down)| match band {
+                    AroonBand::Upper => up,
+                    AroonBand::Lower => down,
+                })
+            {
+                if is_target {
+                    rows.push(DetailRow::new(&item.metadata, curr, finance, factor, profit));
+                }
+            }
+        }
+    }
+    day_value(date, count, rows)
 }
 
 /// Aroon 窗口：统计 N 日内最高/最低价距当前的天数，输出 (AroonUp, AroonDown)。

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use salvo::{Router, Writer};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
+use time::Date;
 use tokio::sync::broadcast::Receiver;
 
 use crate::{
@@ -12,14 +13,20 @@ use crate::{
     prelude::*,
     reject, resolve,
     resp::Resp,
-    router::mode1::{Base, validate_period},
+    router::mode1::{
+        Base,
+        manager::{day_value, detail_filter, resolve_detail_date, DetailRow},
+        validate_period,
+    },
     toolbox::VJson,
 };
 
 /// 注册 14 日资金流量指标因子。
 pub async fn router() -> Router {
     MODE1.register(Arc::new(|filter| Req::register(filter, 14))).await;
-    Router::with_path(Req::id()).post(mfi_n)
+    Router::with_path(Req::id())
+        .post(mfi_n)
+        .push(Router::with_path("detail").post(mfi_n_detail))
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
@@ -70,6 +77,19 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
+/// 资金流量指标因子单日明细请求：因子参数 + 可选目标日期（缺省取筛选区间末交易日）。
+#[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct DetailReq {
+    #[serde(flatten)]
+    #[validate(nested)]
+    req: Req,
+    /// 目标日期 `YYYY-MM-DD`
+    #[serde(default, with = "crate::toolbox::serde::date_format::opt")]
+    date: Option<Date>,
+}
+
+impl ArgsHandle for DetailReq {}
+
 /// 按 N 日资金流量指标进行分位分析。
 #[endpoint(
     tags("模式一"),
@@ -84,6 +104,19 @@ impl ArgsHandle for Req {}
 pub async fn mfi_n(args: VJson<Req>) -> Resp<Arc<RawValue>> {
     let key = args.0.hashcode();
     match MODE1.cache.get_or_run(key, move || mfi_n_run(args.0)).recv().await {
+        Ok(res) => resolve!(res => 200, "ok"),
+        Err(_) => reject!(400, "获取数据失败"),
+    }
+}
+
+/// 执行资金流量指标因子目标日单日分位明细查询。
+///
+/// 预热 = `core.period` 个交易日：从 `date` 前 `period` 个交易日开始推进 MfiWindow，
+/// 每日守卫（行情/ST/前一日收盘）与主分析完全一致，保证目标日 MFI 口径相同。
+#[endpoint]
+pub async fn mfi_n_detail(args: VJson<DetailReq>) -> Resp<Arc<RawValue>> {
+    let key = args.0.hashcode();
+    match MODE1.details.get_or_run(key, move || mfi_n_detail_run(args.0)).recv().await {
         Ok(res) => resolve!(res => 200, "ok"),
         Err(_) => reject!(400, "获取数据失败"),
     }
@@ -117,6 +150,33 @@ fn mfi_n_run(args: Req) -> Box<RawValue> {
     }
 
     result.raw_value()
+}
+
+/// 计算目标日单日分位明细：预热 = `core.period` 个交易日，从目标日回推 `period` 个交易日
+/// 推进 MfiWindow（守卫含前一日收盘判断），仅收集目标日当天分位行。
+fn mfi_n_detail_run(args: DetailReq) -> Box<RawValue> {
+    let period = args.req.core.period.value;
+    let count = args.req.base.count;
+    let date = resolve_detail_date(args.date, &args.req.base.filter);
+    let df = DF.filter(&detail_filter(&args.req.base.filter, date, period));
+    let mut store = vec![MfiWindow::new(period); df.list.len()];
+    let mut rows: Vec<DetailRow> = Vec::with_capacity(df.list.len());
+
+    for index in df.index_iter() {
+        let is_target = index.datetime == date;
+        for (item, store) in df.list.iter().zip(store.iter_mut()) {
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
+                && curr.filter_st(args.req.base.filter_st)
+                && let Some(prev) = item.before(&index, 1)
+                && let Some(factor) = store.next(curr, prev.close)
+            {
+                if is_target {
+                    rows.push(DetailRow::new(&item.metadata, curr, finance, factor, profit));
+                }
+            }
+        }
+    }
+    day_value(date, count, rows)
 }
 
 use crate::db::Market;

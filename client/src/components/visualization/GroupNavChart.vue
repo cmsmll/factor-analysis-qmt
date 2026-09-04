@@ -28,7 +28,46 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:quantileCount': [value: number]
+  'select-date': [date: string]
 }>()
+
+/** 点击图表 x 轴某日时回调对应日期（YYYY-MM-DD），供父级跳转单日明细。 */
+type ChartInstance = {
+  convertFromPixel: (payload: { seriesIndex: number }, point: number[]) => Array<number | string> | undefined
+  getDom: () => HTMLElement
+}
+
+/** 键盘指针用实例与点击反解用实例共用同一图表实例。 */
+const chartInstance = ref<ChartInstance | null>(null)
+function onChartRef(instance: unknown): void {
+  setChartRef(instance)
+  chartInstance.value = isChartInstance(instance) ? instance : null
+}
+
+function isChartInstance(value: unknown): value is ChartInstance {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'convertFromPixel' in value &&
+    'getDom' in value
+  )
+}
+
+function onChartClick(event: MouseEvent): void {
+  const chart = chartInstance.value
+  if (!chart) return
+  const rect = chart.getDom().getBoundingClientRect()
+  const point = chart.convertFromPixel(
+    { seriesIndex: 0 },
+    [event.clientX - rect.left, event.clientY - rect.top],
+  )
+  const value = point?.[0]
+  if (typeof value === 'number' && axisDates.value[value]) {
+    emit('select-date', axisDates.value[value])
+  } else if (typeof value === 'string' && value) {
+    emit('select-date', value)
+  }
+}
 const globalMessage = useGlobalMessageStore()
 const sortMode = ref(0)
 const showPicker = ref(false)
@@ -243,16 +282,17 @@ onBeforeUnmount(() => {
         </NRadioGroup>
       </div>
     </div>
-    <VChart
-      :ref="setChartRef"
-      class="chart-body"
-      :option="option"
-      autoresize
-      tabindex="0"
-      @focus="handleChartFocus"
-      @keydown="handleChartKeydown"
-      @mousemove="handleChartMousemove"
-    />
+        <div class="chart-body" @click="onChartClick">
+      <VChart
+        :ref="onChartRef"
+        :option="option"
+        autoresize
+        tabindex="0"
+        @focus="handleChartFocus"
+        @keydown="handleChartKeydown"
+        @mousemove="handleChartMousemove"
+      />
+    </div>
     <Teleport to="body">
       <Transition name="filter-selector">
         <div v-if="showPicker" class="selector-mask" @click.self="showPicker = false">

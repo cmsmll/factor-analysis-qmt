@@ -412,8 +412,17 @@ function resetRequestDates() {
   }
 }
 
-function goBack() {
+function goBack(): void {
   void router.push({ name: 'mode1' })
+}
+
+/** 进入单日分位明细页；图表点击带目标日期（query.date 定位）。 */
+function goDetail(date?: string): void {
+  void router.push({
+    name: 'mode1-detail',
+    params: { id: modeId.value },
+    query: date ? { date } : {},
+  })
 }
 </script>
 
@@ -423,8 +432,8 @@ function goBack() {
     <PageTitleBar
       :title="routeFactorName || factorDetail.factorName"
       :title-tip="routeFactorInfo"
+      :show-detail="false"
       @back="goBack"
-      @detail="void router.push({ name: 'mode1-refine', params: { id: modeId } })"
     />
 
     <div v-if="previewFilter" class="filter-bar">
@@ -557,6 +566,7 @@ function goBack() {
       :quantile-count="quantileCount"
       :loading="localQuantileLoading"
       @update:quantile-count="changeQuantileCount"
+      @select-date="goDetail"
     />
 
     <div class="chart-row">

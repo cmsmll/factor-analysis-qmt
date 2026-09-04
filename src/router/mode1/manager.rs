@@ -8,7 +8,7 @@ use tokio::{
     task::JoinSet,
 };
 
-use crate::{args::Filter, cache::Cache, db::Market};
+use crate::{DF, args::Filter, cache::Cache, db::{Finance, Market, Metadata}};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListItem {
@@ -88,30 +88,111 @@ pub struct Mode1Temp<'a> {
     pub profit: &'a [f64; 5],
 }
 
-/// 分位数据详情
+/// 单日分位明细中的一行（一只股票）。
+#[derive(Debug, Clone, Serialize)]
+pub struct DetailRow<'a> {
+    /// 证券代码（带后缀）
+    pub code: &'a str,
+    /// 证券名称
+    pub name: &'a str,
+    /// 交易所
+    pub exchange: &'a str,
+    /// 所属行业/指数分类（升序）
+    pub tags: Vec<&'a str>,
+    /// 因子值
+    pub factor: f64,
+    /// 前向收益 `[p1, p2, p3, p4, 换手率]`
+    pub profit: &'a [f64; 5],
+    /// 当日行情字段（datetime/OHLCV/turnover/is_st 等）
+    #[serde(flatten)]
+    pub market: &'a Market,
+    /// 当日财务字段（总市值/股本/股息率/同比等）
+    pub finance: &'a Finance,
+}
+
+impl<'a> DetailRow<'a> {
+    pub fn new(metadata: &'a Metadata, market: &'a Market, finance: &'a Finance, factor: f64, profit: &'a [f64; 5]) -> Self {
+        let mut tags: Vec<&str> = metadata.members.iter().map(String::as_str).collect();
+        tags.sort_unstable();
+        Self {
+            code: metadata.code.as_ref(),
+            name: metadata.name.as_ref(),
+            exchange: metadata.exchange.as_str(),
+            tags,
+            factor,
+            profit,
+            market,
+            finance,
+        }
+    }
+}
+
+/// 目标日全市场分位明细响应。
 #[derive(Debug, Serialize)]
-pub struct Mode1Detail<'a> {
-    pub factor: f64,            // 分位因子值
-    pub profit: &'a [f64; 5],   // 分位收益率
-    pub market: &'a Market, // 股票市场数据
+pub struct QuantileDay<'a> {
+    /// 查询的目标日期
+    #[serde(with = "crate::toolbox::serde::date_format")]
+    pub date: Date,
+    /// 分位数量
+    pub count: usize,
+    /// 分位 `0..count`；每分位为按因子升序切分后的当日股票行。
+    /// 股票数不足分位数时全分位共享当日集合（与 `Mode1Data::push` 一致）。
+    pub quantiles: Vec<Vec<DetailRow<'a>>>,
 }
 
-#[derive(Debug, Serialize, Default)]
-pub struct Details<'a> {
-    datetime: Vec<Date>,
-    items: Vec<Vec<Mode1Detail<'a>>>,
+/// 把当日全市场因子行按 `count` 分位切分并序列化。
+///
+/// 排序方向与整数边界 `index*len/count` 完全复用 `Mode1Data::push` 的口径。
+pub fn day_value<'a>(date: Date, count: usize, rows: Vec<DetailRow<'a>>) -> Box<RawValue> {
+    let quantiles = split_quantiles(count, rows);
+    let value = QuantileDay { date, count, quantiles };
+    let s = serde_json::to_string(&value).unwrap();
+    RawValue::from_string(s).unwrap()
 }
 
-impl<'a> Details<'a> {
-    pub fn push(&mut self, datetime: Date, items: Vec<Mode1Detail<'a>>) {
-        self.datetime.push(datetime);
-        self.items.push(items);
+/// 按 `Mode1Data::push` 同款边界把行切为 `count` 组（内部先按因子升序排序）。
+fn split_quantiles<'a>(count: usize, rows: Vec<DetailRow<'a>>) -> Vec<Vec<DetailRow<'a>>> {
+    if count == 0 {
+        return Vec::new();
     }
+    if rows.is_empty() {
+        return vec![Vec::new(); count];
+    }
+    let mut rows = rows;
+    rows.sort_unstable_by(|left, right| left.factor.total_cmp(&right.factor));
+    let len = rows.len();
+    if len < count {
+        // 与主接口一致：股票数少于分位数时全分位共享当日集合。
+        return (0..count).map(|_| rows.clone()).collect();
+    }
+    let bounds: Vec<usize> = (0..=count).map(|index| index * len / count).collect();
+    let mut groups: Vec<Vec<DetailRow<'a>>> = vec![Vec::new(); count];
+    for (index, row) in rows.into_iter().enumerate() {
+        let group = bounds.partition_point(|&bound| bound <= index) - 1;
+        groups[group].push(row);
+    }
+    groups
+}
 
-    pub fn raw_value(&self) -> Box<RawValue> {
-        let s = serde_json::to_string(self).unwrap();
-        RawValue::from_string(s).unwrap()
-    }
+/// 解析单日明细的目标日期；缺省时取筛选区间内的末交易日。
+pub fn resolve_detail_date(date: Option<Date>, filter: &Filter) -> Date {
+    date.unwrap_or_else(|| {
+        let index = &DF.index;
+        let pos = index.partition_point(|day| *day <= filter.end);
+        if pos == 0 {
+            DF.start
+        } else {
+            index[pos - 1]
+        }
+    })
+}
+
+/// 构造单日明细的过滤条件：终点 = 目标日，起点按 `warmup` 个交易日回推，股票池条件不变。
+pub fn detail_filter(filter: &Filter, date: Date, warmup: usize) -> Filter {
+    let mut result = filter.clone();
+    result.end = date;
+    result.start = DF.warmup_start(date, warmup);
+    result
 }
 
 impl Mode1Data {
@@ -299,5 +380,94 @@ mod tests {
         assert!(data.datetime.is_empty());
         assert!(data.factor.iter().all(Vec::is_empty));
         assert!(data.profit1.iter().all(|p| p.source.is_empty()));
+    }
+
+    // ─── 单日分位明细切分 ───────────────────────────────────────────────
+    use std::collections::HashSet as FxSet;
+
+    fn leaked_row(factor: f64) -> (&'static Metadata, &'static Market, &'static Finance, &'static [f64; 5]) {
+        let metadata = Box::leak(Box::new(Metadata {
+            code: Arc::from("000001.SZ"),
+            name: Arc::from("测试股票"),
+            exchange: "上交所".to_string(),
+            listing_date: "2000-01-01".to_string(),
+            members: FxSet::from(["行业一".to_string()]),
+        }));
+        let market = Box::leak(Box::new(Market {
+            datetime: Date::from_calendar_date(2025, time::Month::January, 1).unwrap(),
+            change_percent: 0.0,
+            open: factor,
+            close: factor,
+            high: factor,
+            low: factor,
+            volume: 0.0,
+            amount: 0.0,
+            turnover: 0.0,
+            is_st: false,
+        }));
+        let profit = Box::leak(Box::new([0.0; 5]));
+        let finance = Box::leak(Box::new(Finance {
+            total_market: 0.0,
+            dividend_yield: 0.0,
+            ..Finance::default()
+        }));
+        (metadata, market, finance, profit)
+    }
+
+    fn detail_rows(factors: &[f64]) -> Vec<DetailRow<'static>> {
+        factors
+            .iter()
+            .copied()
+            .map(|factor| {
+                let (metadata, market, finance, profit) = leaked_row(factor);
+                DetailRow::new(metadata, market, finance, factor, profit)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn split_quantiles_groups_by_ascending_factor() {
+        let rows = detail_rows(&[4.0, 1.0, 3.0, 2.0]);
+        let groups = split_quantiles(2, rows);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].iter().map(|row| row.factor).collect::<Vec<_>>(), [1.0, 2.0]);
+        assert_eq!(groups[1].iter().map(|row| row.factor).collect::<Vec<_>>(), [3.0, 4.0]);
+    }
+
+    #[test]
+    fn split_quantiles_uses_integer_boundaries() {
+        let rows = detail_rows(&[5.0, 1.0, 4.0, 2.0, 3.0]);
+        let groups = split_quantiles(3, rows);
+        assert_eq!(groups[0].iter().map(|row| row.factor).collect::<Vec<_>>(), [1.0]);
+        assert_eq!(groups[1].iter().map(|row| row.factor).collect::<Vec<_>>(), [2.0, 3.0]);
+        assert_eq!(groups[2].iter().map(|row| row.factor).collect::<Vec<_>>(), [4.0, 5.0]);
+    }
+
+    #[test]
+    fn split_quantiles_shares_rows_when_count_exceeds_len() {
+        let rows = detail_rows(&[3.0, 1.0]);
+        let groups = split_quantiles(4, rows);
+        assert_eq!(groups.len(), 4);
+        for group in &groups {
+            assert_eq!(group.iter().map(|row| row.factor).collect::<Vec<_>>(), [1.0, 3.0]);
+        }
+    }
+
+    #[test]
+    fn split_quantiles_empty_rows_yield_empty_groups() {
+        let groups = split_quantiles(3, Vec::new());
+        assert_eq!(groups.len(), 3);
+        assert!(groups.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn detail_row_carries_metadata_and_market() {
+        let (metadata, market, finance, profit) = leaked_row(9.5);
+        let row = DetailRow::new(metadata, market, finance, 2.0, profit);
+        assert_eq!(row.code, "000001.SZ");
+        assert_eq!(row.exchange, "上交所");
+        assert_eq!(row.tags, ["行业一"]);
+        assert_eq!(row.factor, 2.0);
+        assert_eq!(row.market.close, 9.5);
     }
 }

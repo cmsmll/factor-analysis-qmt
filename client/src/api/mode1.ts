@@ -1,11 +1,13 @@
 import { request } from './client'
 import type {
   IndicePoint,
+  Mode1Data,
+  Mode1DetailRequest,
+  Mode1QuantileDay,
   ModeFilter,
   ModeListItem,
   ModeRequest,
   Period,
-  Mode1Data,
 } from '@/types/mode1'
 
 export async function fetchPeriods(): Promise<Period[]> {
@@ -74,6 +76,19 @@ export function fetchMode1Data(params: ModeRequest): Promise<Mode1Data> {
   const id = encodeURIComponent(params.base.id)
 
   return request<Mode1Data>(`/api/mode1/${id}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(params),
+  })
+}
+
+/** 查询因子目标日单日分位明细（date 缺省时后端取筛选区间末交易日）。 */
+export function fetchMode1Detail(params: Mode1DetailRequest): Promise<Mode1QuantileDay> {
+  const id = encodeURIComponent(params.base.id)
+
+  return request<Mode1QuantileDay>(`/api/mode1/${id}/detail`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

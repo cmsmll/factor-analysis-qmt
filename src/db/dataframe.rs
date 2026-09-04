@@ -28,6 +28,17 @@ impl DataFrame {
         self.index.iter().enumerate().map(|(index, datetime)| Index::new(index, *datetime))
     }
 
+    /// 返回 `date` 前第 `warmup` 个交易日。
+    ///
+    /// `date` 不在交易日索引中时返回 `date` 本身（单日窗口为空，调用方可快速得到空结果，
+    /// 避免误回退到数据起点导致全历史遍历）；回看不足时取数据起点。
+    pub fn warmup_start(&self, date: Date, warmup: usize) -> Date {
+        match self.index.binary_search(&date) {
+            Ok(pos) => self.index[pos.saturating_sub(warmup)],
+            Err(_) => date,
+        }
+    }
+
     /// 返回指定日期范围内的新数据帧，超出的边界会被裁剪。
     pub fn range(&self, start: Date, end: Date) -> Self {
         let start = start.max(self.start);
@@ -345,5 +356,15 @@ mod tests {
         assert!(filtered.list.is_empty());
         assert!(Arc::ptr_eq(&filtered.sector, &frame.sector));
         assert!(Arc::ptr_eq(&filtered.indice, &frame.indice));
+    }
+
+    // 测试 warmup_start 按交易日回推，缺日/不足时取数据起点。
+    #[test]
+    fn warmup_start_shifts_back_trading_days() {
+        let frame = frame();
+        assert_eq!(frame.warmup_start(date(3), 1), date(2));
+        assert_eq!(frame.warmup_start(date(3), 2), date(1));
+        assert_eq!(frame.warmup_start(date(3), 99), date(1)); // 回看不足取起点
+        assert_eq!(frame.warmup_start(date(5), 1), date(5)); // 不在索引返回自身（单日空窗口）
     }
 }

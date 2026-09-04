@@ -5,6 +5,7 @@ use std::sync::Arc;
 use salvo::{Router, Writer};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
+use time::Date;
 use tokio::sync::broadcast::Receiver;
 
 use crate::{
@@ -12,7 +13,11 @@ use crate::{
     prelude::*,
     reject, resolve,
     resp::Resp,
-    router::mode1::{Base, validate_period},
+    router::mode1::{
+        Base,
+        manager::{day_value, detail_filter, resolve_detail_date, DetailRow},
+        validate_period,
+    },
     toolbox::VJson,
 };
 
@@ -50,7 +55,11 @@ pub async fn router() -> Router {
     for kind in [WvadKind::Wvad6, WvadKind::Wvad20, WvadKind::Williams] {
         MODE1.register(Arc::new(move |filter| Req::register(filter, kind.window(), kind))).await;
     }
-    Router::new().push(Router::with_path(Req::id()).post(wvad))
+    Router::new().push(
+        Router::with_path(Req::id())
+            .post(wvad)
+            .push(Router::with_path("detail").post(wvad_detail)),
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
@@ -104,6 +113,19 @@ impl Req {
 
 impl ArgsHandle for Req {}
 
+/// WVAD 系因子单日明细请求：因子参数 + 可选目标日期（缺省取筛选区间末交易日）。
+#[derive(Debug, Serialize, Deserialize, ToSchema, validator::Validate)]
+pub struct DetailReq {
+    #[serde(flatten)]
+    #[validate(nested)]
+    req: Req,
+    /// 目标日期 `YYYY-MM-DD`
+    #[serde(default, with = "crate::toolbox::serde::date_format::opt")]
+    date: Option<Date>,
+}
+
+impl ArgsHandle for DetailReq {}
+
 /// 按 WVAD 系指标进行分位分析。
 #[endpoint(
     tags("模式一"),
@@ -118,6 +140,19 @@ impl ArgsHandle for Req {}
 pub async fn wvad(args: VJson<Req>) -> Resp<Arc<RawValue>> {
     let key = args.0.hashcode();
     match MODE1.cache.get_or_run(key, move || wvad_run(args.0)).recv().await {
+        Ok(res) => resolve!(res => 200, "ok"),
+        Err(_) => reject!(400, "获取数据失败"),
+    }
+}
+
+/// 执行 WVAD 系因子目标日单日分位明细查询。
+///
+/// 预热 = `kind.window().max(6)` 个交易日：从 `date` 前该数开始推进状态，
+/// Wvad6 用 SMA(6)、Wvad20/Williams 用 WvadSum(kind.window())，与主分析口径一致。
+#[endpoint]
+pub async fn wvad_detail(args: VJson<DetailReq>) -> Resp<Arc<RawValue>> {
+    let key = args.0.hashcode();
+    match MODE1.details.get_or_run(key, move || wvad_detail_run(args.0)).recv().await {
         Ok(res) => resolve!(res => 200, "ok"),
         Err(_) => reject!(400, "获取数据失败"),
     }
@@ -159,6 +194,39 @@ fn wvad_run(args: Req) -> Box<RawValue> {
     }
 
     result.raw_value()
+}
+
+/// 计算目标日单日分位明细：预热 = `kind.window().max(6)` 个交易日（Wvad6 的 SMA(6) 需至少 6 日，
+/// Wvad20/Williams 的 WvadSum 需窗口长度），仅收集目标日当天分位行。
+fn wvad_detail_run(args: DetailReq) -> Box<RawValue> {
+    let kind = args.req.core.kind;
+    let count = args.req.base.count;
+    let date = resolve_detail_date(args.date, &args.req.base.filter);
+    let df = DF.filter(&detail_filter(&args.req.base.filter, date, kind.window().max(6)));
+    let mut avg_store = vec![SMA::new(6); df.list.len()];
+    let mut sum_store = vec![WvadSum::new(kind.window()); df.list.len()];
+    let mut rows: Vec<DetailRow> = Vec::with_capacity(df.list.len());
+
+    for index in df.index_iter() {
+        let is_target = index.datetime == date;
+        for (item, (avg_store, sum_store)) in df.list.iter().zip(avg_store.iter_mut().zip(sum_store.iter_mut())) {
+            if let Some((curr, profit, finance)) = item.data_and_finance(&index)
+                && curr.filter_st(args.req.base.filter_st)
+            {
+                let daily = dev(curr.close - curr.open, curr.high - curr.low) * curr.volume;
+                let factor = match kind {
+                    WvadKind::Wvad6 => avg_store.next(daily),
+                    WvadKind::Wvad20 | WvadKind::Williams => sum_store.next(daily),
+                };
+                if let Some(factor) = factor {
+                    if is_target {
+                        rows.push(DetailRow::new(&item.metadata, curr, finance, factor, profit));
+                    }
+                }
+            }
+        }
+    }
+    day_value(date, count, rows)
 }
 
 /// WVAD 滑动累计窗口。
