@@ -198,4 +198,19 @@ const columns: DataTableColumns<StockItem> = [
 .empty-block {
   padding: 32px 0;
 }
+
+/* 表头吸顶（与 market/明细页一致）：解除 naive 滚动容器 overflow，th sticky 相对视口 */
+.list-card :deep(.n-data-table-base-table-body.n-scrollbar),
+.list-card :deep(.n-scrollbar-container),
+.list-card :deep(.n-data-table-wrapper) {
+  overflow: visible;
+}
+
+.list-card :deep(.n-data-table-thead .n-data-table-th) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(250, 250, 252);
+}
+
 </style>

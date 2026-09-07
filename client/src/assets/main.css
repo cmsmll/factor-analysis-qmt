@@ -1,5 +1,6 @@
 html {
-  overflow-y: scroll;
+  /* 页面内容不足一屏时不显示滚动条（各页面内容超高时仍正常滚动） */
+  overflow-y: auto;
 }
 
 html,

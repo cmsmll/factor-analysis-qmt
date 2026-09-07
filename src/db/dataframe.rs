@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use rustc_hash::FxHashMap;
+use serde::Serialize;
 use time::Date;
 
 use crate::{
@@ -105,15 +106,18 @@ impl Index {
 }
 
 /// 合约数据
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Contract {
+    #[serde(with = "crate::toolbox::serde::date_format")]
     pub start: Date,
+    #[serde(with = "crate::toolbox::serde::date_format")]
     pub end: Date,
-    /// 逐日行情、财务与未来收益数据
+    /// 逐日行情、财务（序列化时 profit 已跳过）
     pub bar: Arc<Vec<Bar>>,
     /// 合约元数据
     pub metadata: Metadata,
-    /// 时间表
+    /// 时间表（内部索引，序列化跳过）
+    #[serde(skip)]
     pub table: FxHashMap<Date, usize>,
 }
 

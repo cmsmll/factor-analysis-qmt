@@ -66,14 +66,15 @@ pub struct Finance {
     pub inc_net_profit_rate: Option<f64>,
 }
 
-/// 单交易日数据：行情 + 财务 + 未来收益。
-#[derive(Debug, Clone)]
+/// 单交易日数据：行情 + 财务 + 未来收益（序列化时跳过未来收益 profit）。
+#[derive(Debug, Clone, Serialize)]
 pub struct Bar {
     /// 行情数据
     pub market: Market,
     /// 财务数据
     pub finance: Finance,
     /// 未来收益与当前换手率 `[p1, p2, p3, p4, 换手率]`；尾部缺少未来数据时收益置 0。
+    #[serde(skip)]
     pub profit: [f64; 5],
 }
 

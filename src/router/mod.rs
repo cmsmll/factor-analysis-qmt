@@ -3,6 +3,7 @@
 //! OpenAPI JSON 位于 `/api-doc/openapi.json`，Swagger UI 位于 `/swagger-ui`。
 
 pub mod indice_history;
+pub mod market;
 pub mod mode1;
 pub mod mode2;
 
@@ -35,7 +36,8 @@ pub async fn router() -> Router {
                 .push(Router::with_path("period").get(period))
                 .push(Router::with_path("test").get(test))
                 .push(mode1::mode1_router().await)
-                .push(mode2::mode2_router().await),
+                .push(mode2::mode2_router().await)
+                .push(market::market_router().await),
         )
         .get(hello)
 }

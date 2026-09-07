@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, reactive, ref, watch, type VNode } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { boardStepPath } from '@/utils/boardNav'
 import { storeToRefs } from 'pinia'
 import {
   NButton,
@@ -96,8 +97,7 @@ const isMode2 = computed(() => route.path.startsWith('/mode2'))
 const config = computed<ListModeConfig>(() => (isMode2.value ? mode2Config : mode1Config))
 
 function switchKanban(step: number) {
-  const index = (Number(isMode2.value) + step + 2) % 2
-  void router.push(index === 1 ? '/mode2' : '/mode1')
+  void router.push(boardStepPath(route.path, step))
 }
 
 // ── 通用渲染器 ──
@@ -1020,4 +1020,19 @@ function handlePageSizeChange(value: number) {
 .empty-block {
   padding: 8px 0;
 }
+
+/* 表头吸顶（与 market/明细页一致）：解除 naive 滚动容器 overflow，th sticky 相对视口 */
+.factorKanban-layout :deep(.n-data-table-base-table-body.n-scrollbar),
+.factorKanban-layout :deep(.n-scrollbar-container),
+.factorKanban-layout :deep(.n-data-table-wrapper) {
+  overflow: visible;
+}
+
+.factorKanban-layout :deep(.n-data-table-thead .n-data-table-th) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgb(250, 250, 252);
+}
+
 </style>
