@@ -5,3 +5,6 @@
 /data
 Task.md
 .omp
+.tmp
+# 本地基线克隆(.tmp)
+/.tmp/

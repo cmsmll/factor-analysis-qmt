@@ -2,17 +2,13 @@
 import { computed, h, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NCard,
-  NCheckbox,
-  NDataTable,
-  NEmpty,
-  NSelect,
-  NSpin,
-  NTag,
-  type DataTableColumns,
-} from 'naive-ui'
-
+import UiCard from '@/components/ui/UiCard.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import UiSpin from '@/components/ui/UiSpin.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
+import UiTag from '@/components/ui/UiTag.vue'
 import FactorRankChart from '@/components/visualization/FactorRankChart.vue'
 import SectorPieChart from '@/components/visualization/SectorPieChart.vue'
 import { uniqueDates, useMode2Store } from '@/stores/mode2'
@@ -23,6 +19,9 @@ defineOptions({ name: 'MicrocapList' })
 /** 微盘股名单明细：日期选择 + ST/北证过滤 + 名单表格 + 分布/排名图（mode2 第三级明细页内容）。 */
 const store = useMode2Store()
 const { base, currentDate, history, stockItems, selectLoading, selectError } = storeToRefs(store)
+// 事件回调内不可 useRoute()/useRouter()(无组件注入上下文),须在 setup 顶层取用
+const route = useRoute()
+const router = useRouter()
 
 const strategy = computed(() => store.currentStrategy)
 
@@ -36,10 +35,8 @@ watch(currentDate, (date) => {
 })
 
 // 用户主动切换名单日期 → 同步到 URL query（store 内部赋值（默认日期/query 读入）不写回）
-function onDateChange(date: string | null): void {
+function onDateChange(date: string | number | null): void {
   if (typeof date !== 'string' || !date) return
-  const route = useRoute()
-  const router = useRouter()
   if (route.query.date === date) return
   void router.replace({ query: { ...route.query, date } })
 }
@@ -72,7 +69,7 @@ function rowProps(row: StockItem) {
   }
 }
 
-const columns: DataTableColumns<StockItem> = [
+const columns: UiTableColumn<StockItem>[] = [
   { title: '#', key: 'rank', width: 48, render: (_row, index) => index + 1 },
   { title: '代码', key: 'code', width: 80 },
   { title: '名称', key: 'name', width: 110 },
@@ -92,7 +89,7 @@ const columns: DataTableColumns<StockItem> = [
       h(
         'div',
         { class: 'tag-cell' },
-        row.tags.map((tag) => h(NTag, { size: 'small', bordered: false }, { default: () => tag })),
+        row.tags.map((tag) => h(UiTag, { size: 'small' }, () => tag)),
       ),
   },
   {
@@ -107,25 +104,25 @@ const columns: DataTableColumns<StockItem> = [
 </script>
 
 <template>
-  <NCard :title="`${strategy.name}名单（${strategy.desc}）`" size="small" class="list-card">
+  <UiCard :title="`${strategy.name}名单（${strategy.desc}）`" size="small" class="list-card">
     <div class="list-toolbar">
       <span class="list-date-label">名单日期</span>
-      <NSelect
+      <UiSelect
         v-model:value="currentDate"
         :options="dateOptions"
         class="date-select"
         @update:value="onDateChange"
       />
       <span class="list-date-label">过滤ST</span>
-      <NCheckbox :checked="base.filter_st" @update:checked="onStFilter('filter_st', $event)" />
+      <UiCheckbox :checked="base.filter_st" @update:checked="onStFilter('filter_st', $event)" />
       <span class="list-date-label">过滤北证</span>
-      <NCheckbox :checked="base.filter_bz" @update:checked="onStFilter('filter_bz', $event)" />
+      <UiCheckbox :checked="base.filter_bz" @update:checked="onStFilter('filter_bz', $event)" />
       <span v-if="selectLoading" class="loading-tip">加载中…</span>
     </div>
-    <NSpin :show="selectLoading">
+    <UiSpin :show="selectLoading">
       <div v-if="selectError" class="error-tip">{{ selectError }}</div>
       <template v-else-if="stockItems.length">
-        <NDataTable
+        <UiTable
           v-model:expanded-row-keys="expandedKeys"
           :columns="columns"
           :data="stockItems"
@@ -135,17 +132,17 @@ const columns: DataTableColumns<StockItem> = [
           class="stock-table"
         />
         <div class="list-charts">
-          <NCard title="行业/指数分布" size="small">
+          <UiCard title="行业/指数分布" size="small">
             <SectorPieChart :items="stockItems" />
-          </NCard>
-          <NCard title="收盘价排名" size="small">
+          </UiCard>
+          <UiCard title="收盘价排名" size="small">
             <FactorRankChart :items="stockItems" />
-          </NCard>
+          </UiCard>
         </div>
       </template>
-      <NEmpty v-else description="该日无符合条件的股票" class="empty-block" />
-    </NSpin>
-  </NCard>
+      <UiEmpty v-else description="该日无符合条件的股票" class="empty-block" />
+    </UiSpin>
+  </UiCard>
 </template>
 
 <style scoped>
@@ -158,7 +155,7 @@ const columns: DataTableColumns<StockItem> = [
 
 .list-date-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-regular, #606266);
 }
 
 .date-select {
@@ -167,7 +164,7 @@ const columns: DataTableColumns<StockItem> = [
 
 .loading-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-secondary, #909399);
 }
 
 .list-charts {
@@ -185,13 +182,13 @@ const columns: DataTableColumns<StockItem> = [
 
 .expand-row {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-regular, #606266);
   line-height: 1.8;
 }
 
 .error-tip {
   padding: 12px;
-  color: #d03050;
+  color: var(--ui-color-danger, #d03050);
   font-size: 13px;
 }
 
@@ -199,18 +196,12 @@ const columns: DataTableColumns<StockItem> = [
   padding: 32px 0;
 }
 
-/* 表头吸顶（与 market/明细页一致）：解除 naive 滚动容器 overflow，th sticky 相对视口 */
-.list-card :deep(.n-data-table-base-table-body.n-scrollbar),
-.list-card :deep(.n-scrollbar-container),
-.list-card :deep(.n-data-table-wrapper) {
-  overflow: visible;
-}
-
-.list-card :deep(.n-data-table-thead .n-data-table-th) {
+/* 表头吸顶（与 market/明细页一致）：本地表格无滚动容器，th sticky 相对外层滚动 */
+.list-card :deep(.ui-table__th) {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgb(250, 250, 252);
+  background: var(--ui-bg-header, #fafafa);
 }
 
 </style>

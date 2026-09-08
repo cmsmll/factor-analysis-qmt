@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { NButton, NRadioGroup, NRadio } from 'naive-ui'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiRadio from '@/components/ui/UiRadio.vue'
+import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 import { fetchIndiceHistory, fetchIndices } from '@/api/mode1'
 import CloseIcon from '@/assets/icons/icon-close.svg'
 import SearchIcon from '@/assets/icons/search.svg'
@@ -266,20 +268,20 @@ onBeforeUnmount(() => {
     <div class="chart-card-header">
       <span class="chart-title">分组收益曲线</span>
       <div class="header-controls">
-        <NButton size="small" secondary @click="openPicker">指数同框</NButton>
-        <NButton class="sort-btn" size="tiny" quaternary @click="sortMode = (sortMode + 1) % 3">
+        <UiButton size="small" variant="secondary" @click="openPicker">指数同框</UiButton>
+        <UiButton class="sort-btn" size="tiny" variant="quaternary" @click="sortMode = (sortMode + 1) % 3">
           {{ sortLabel }}
-        </NButton>
-        <NRadioGroup
+        </UiButton>
+        <UiRadioGroup
           :value="quantileCount"
           :disabled="loading"
           size="small"
           @update:value="emit('update:quantileCount', Number($event))"
         >
-          <NRadio :value="3">三分位</NRadio>
-          <NRadio :value="5">五分位</NRadio>
-          <NRadio :value="10">十分位</NRadio>
-        </NRadioGroup>
+          <UiRadio :value="3">三分位</UiRadio>
+          <UiRadio :value="5">五分位</UiRadio>
+          <UiRadio :value="10">十分位</UiRadio>
+        </UiRadioGroup>
       </div>
     </div>
         <div class="chart-body" @click="onChartClick">
@@ -354,10 +356,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .chart-card {
-  background: #fff;
+  background: var(--ui-bg-card);
   border-radius: 8px;
   padding: 16px 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ui-shadow-card);
 }
 
 .chart-card-header {
@@ -375,13 +377,13 @@ onBeforeUnmount(() => {
 
 .sort-btn {
   font-size: 14px !important;
-  color: rgb(51, 54, 57) !important;
+  color: var(--ui-text-main) !important;
 }
 
 .chart-title {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--ui-text-main);
 }
 
 .chart-body {
@@ -407,8 +409,8 @@ onBeforeUnmount(() => {
   height: min(620px, calc(100vh - 48px));
   overflow: hidden;
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 24px 70px rgb(15 23 42 / 0.24);
+  background: var(--ui-bg-card);
+  box-shadow: var(--ui-shadow-modal);
 }
 
 .selector-header {
@@ -416,7 +418,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 14px;
   padding: 18px 20px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--ui-border-lighter);
 }
 
 .search-box {
@@ -426,21 +428,21 @@ onBeforeUnmount(() => {
   gap: 10px;
   height: 38px;
   padding: 0 12px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--ui-border-base);
   border-radius: 6px;
-  color: #909399;
+  color: var(--ui-text-secondary);
   transition: border-color 160ms ease;
 }
 
 .search-box:focus-within {
-  border-color: #409eff;
+  border-color: var(--ui-color-primary);
 }
 
 .search-box input {
   width: 100%;
   border: 0;
   outline: 0;
-  color: #303133;
+  color: var(--ui-text-main);
   background: transparent;
   font: inherit;
 }
@@ -458,14 +460,14 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 0;
   border-radius: 6px;
-  color: #909399;
+  color: var(--ui-text-secondary);
   background: transparent;
   cursor: pointer;
 }
 
 .icon-button:hover {
-  color: #409eff;
-  background: #ecf5ff;
+  color: var(--ui-color-primary);
+  background: var(--ui-color-primary-weak);
 }
 
 .icon-button svg {
@@ -478,11 +480,11 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px 8px;
-  color: #303133;
+  color: var(--ui-text-main);
 }
 
 .selector-summary span {
-  color: #909399;
+  color: var(--ui-text-secondary);
   font-size: 13px;
 }
 
@@ -503,19 +505,19 @@ onBeforeUnmount(() => {
   min-height: 38px;
   padding: 8px 10px;
   overflow: hidden;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--ui-border-light);
   border-radius: 6px;
-  color: #606266;
-  background: #fff;
+  color: var(--ui-text-regular);
+  background: var(--ui-bg-card);
   cursor: pointer;
   text-align: left;
 }
 
 .option-item:hover,
 .option-item.selected {
-  border-color: #409eff;
-  color: #409eff;
-  background: #ecf5ff;
+  border-color: var(--ui-color-primary);
+  color: var(--ui-color-primary);
+  background: var(--ui-color-primary-weak);
 }
 
 .option-check {
@@ -524,26 +526,26 @@ onBeforeUnmount(() => {
   height: 16px;
   flex: 0 0 16px;
   place-items: center;
-  border: 1px solid #c0c4cc;
+  border: 1px solid var(--ui-text-placeholder);
   border-radius: 3px;
   color: #fff;
   font-size: 12px;
 }
 
 .selected .option-check {
-  border-color: #409eff;
-  background: #409eff;
+  border-color: var(--ui-color-primary);
+  background: var(--ui-color-primary);
 }
 
 .empty-state {
   grid-column: 1 / -1;
   padding: 72px 0;
-  color: #909399;
+  color: var(--ui-text-secondary);
   text-align: center;
 }
 
 .indice-error {
-  color: #d03050;
+  color: var(--ui-color-danger);
 }
 
 .selector-footer {
@@ -551,16 +553,16 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr 1fr;
   align-items: center;
   padding: 14px 20px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--ui-border-lighter);
 }
 
 .footer-button {
   min-width: 72px;
   height: 34px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--ui-border-base);
   border-radius: 6px;
-  color: #606266;
-  background: #fff;
+  color: var(--ui-text-regular);
+  background: var(--ui-bg-card);
   cursor: pointer;
 }
 
@@ -570,9 +572,9 @@ onBeforeUnmount(() => {
 
 .confirm-button {
   justify-self: center;
-  border-color: #409eff;
+  border-color: var(--ui-color-primary);
   color: #fff;
-  background: #409eff;
+  background: var(--ui-color-primary);
 }
 
 .clear-button {

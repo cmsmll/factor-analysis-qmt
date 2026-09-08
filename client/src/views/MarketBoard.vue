@@ -1,24 +1,16 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, type VNode } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NButton,
-  NConfigProvider,
-  NDataTable,
-  NDatePicker,
-  NEmpty,
-  NForm,
-  NFormItem,
-  NInput,
-  NPagination,
-  dateZhCN,
-  zhCN,
-  type DataTableColumns,
-} from 'naive-ui'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiDatePicker from '@/components/ui/UiDatePicker.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiPagination from '@/components/ui/UiPagination.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchMarketList } from '@/api/market'
-import { fetchIndices, fetchSectors } from '@/api/mode1'
+import { fetchDataRange, fetchIndices, fetchSectors } from '@/api/mode1'
 import type { MarketSnapshotRow } from '@/api/market'
 import { useGlobalFilterSelectorStore } from '@/stores/globalFilterSelector'
 import { useGlobalLoadingStore } from '@/stores/globalLoading'
@@ -38,6 +30,9 @@ const rows = ref<MarketSnapshotRow[]>([])
 const loading = ref(false)
 const error = ref('')
 const snapshotDate = ref('')
+/** 全市场数据日期边界(毫秒,来自 /api/range;失败则日历不限界) */
+const dataMinMs = ref<number | undefined>(undefined)
+const dataMaxMs = ref<number | undefined>(undefined)
 /** 快照日期选择（毫秒时间戳；缺省取列表返回的末交易日） */
 const snapshotDay = ref<number | null>(null)
 const searchInput = ref('')
@@ -64,10 +59,19 @@ async function loadList(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const data = await globalLoading.run(() => fetchMarketList())
+    const [data, range] = await Promise.all([
+      globalLoading.run(() => fetchMarketList()),
+      fetchDataRange().catch(() => null),
+    ])
     rows.value = data
     snapshotDate.value = data[0]?.datetime ?? ''
     if (snapshotDate.value) snapshotDay.value = parseDateText(snapshotDate.value)
+    if (range) {
+      const min = parseDateText(range.min_date)
+      const max = parseDateText(range.max_date)
+      dataMinMs.value = min > 0 ? min : undefined
+      dataMaxMs.value = max > 0 ? max : undefined
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
     rows.value = []
@@ -263,7 +267,7 @@ function withSort<T extends { key: string }>(column: T): T & SortableColumn {
   }
 }
 
-const columns = computed<DataTableColumns<MarketSnapshotRow>>(() => {
+const columns = computed<UiTableColumn<MarketSnapshotRow>[]>(() => {
   const offset = (page.value - 1) * pageSize.value
   return [
     {
@@ -285,13 +289,16 @@ const columns = computed<DataTableColumns<MarketSnapshotRow>>(() => {
     withSort({ title: '成交额', key: 'amount', width: 120, align: 'right', render: (row: MarketSnapshotRow) => money(row.amount) }),
     withSort({ title: '成交量', key: 'volume', width: 120, align: 'right', render: (row: MarketSnapshotRow) => hands(row.volume) }),
     withSort({ title: '换手率', key: 'turnover_rate', width: 110, align: 'right', render: (row: MarketSnapshotRow) => pctText(row.turnover_rate) }),
-  ] as DataTableColumns<MarketSnapshotRow>
+  ]
 })
 
-const rowProps = (row: MarketSnapshotRow) => ({
-  style: { cursor: 'pointer' },
-  onClick: () => openDetail(row),
-})
+const rowProps = (row: unknown) => {
+  const item = row as MarketSnapshotRow
+  return {
+    style: { cursor: 'pointer' },
+    onClick: () => openDetail(item),
+  }
+}
 
 onMounted(() => {
   void loadList()
@@ -302,7 +309,7 @@ onMounted(() => {
   <div class="market-layout">
     <!-- 标题：行情预览 + 左右切换三看板 -->
     <header class="page-header" :style="{ background: HEADER_GRADIENT }">
-      <NButton text circle class="header-switch-btn" aria-label="上一看板" @click="switchBoard(-1)">
+      <UiButton type="text" class="header-switch-btn" aria-label="上一看板" @click="switchBoard(-1)">
         <template #icon>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
             <path
@@ -315,12 +322,12 @@ onMounted(() => {
             ></path>
           </svg>
         </template>
-      </NButton>
+      </UiButton>
       <div class="header-content">
         <h1 class="page-title">行情预览</h1>
         <p class="page-subtitle">全部A股行情快照 · 末交易日 {{ snapshotDate || '—' }}</p>
       </div>
-      <NButton text circle class="header-switch-btn" aria-label="下一看板" @click="switchBoard(1)">
+      <UiButton type="text" class="header-switch-btn" aria-label="下一看板" @click="switchBoard(1)">
         <template #icon>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
             <path
@@ -333,54 +340,52 @@ onMounted(() => {
             ></path>
           </svg>
         </template>
-      </NButton>
+      </UiButton>
     </header>
 
     <!-- 筛选条：股票搜索 + 行业/指数 + 重载 -->
     <div class="filter-bar">
-      <NForm layout="inline" label-placement="left" size="small">
-        <NFormItem label="股票搜索">
-          <NInput
+      <div class="filter-form">
+        <label class="filter-item">
+          <span class="filter-item__label">股票搜索</span>
+          <UiInput
             v-model:value="searchInput"
             placeholder="代码 / 名称"
             clearable
+            size="small"
             style="width: 200px"
           />
-        </NFormItem>
-        <NFormItem label="行业板块">
-          <NButton size="small" class="selector-button" @click="selectSectors">
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">行业板块</span>
+          <UiButton size="small" class="selector-button" @click="selectSectors">
             {{ sectorSel.length ? `已选 ${sectorSel.length} 项` : '全部行业' }}
-          </NButton>
-        </NFormItem>
-        <NFormItem label="指数列表">
-          <NButton size="small" class="selector-button" @click="selectIndices">
+          </UiButton>
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">指数列表</span>
+          <UiButton size="small" class="selector-button" @click="selectIndices">
             {{ indiceSel.length ? `已选 ${indiceSel.length} 项` : '全部指数' }}
-          </NButton>
-        </NFormItem>
-        <NFormItem label="行情日期">
-          <NConfigProvider :locale="zhCN" :date-locale="dateZhCN">
-            <NDatePicker
-              :value="snapshotDay"
-              :disabled="loading"
-              type="date"
-              size="small"
-              :clearable="false"
-              to=".market-layout"
-              style="width: 150px"
-              @update:value="changeSnapshotDay"
-            >
-              <template #now>
-                <NButton size="tiny" class="date-reset-btn" @click.stop.prevent="resetSnapshotDay">
-                  复位
-                </NButton>
-              </template>
-            </NDatePicker>
-          </NConfigProvider>
-        </NFormItem>
-        <NFormItem label="" class="reload-form-item">
-          <NButton
+          </UiButton>
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">行情日期</span>
+          <UiDatePicker
+            :value="snapshotDay"
+            :disabled="loading"
+            size="small"
+            :clearable="false"
+            :min="dataMinMs"
+            :max="dataMaxMs"
+            style="width: 150px"
+            action-text="复位"
+            @update:value="changeSnapshotDay"
+            @action="resetSnapshotDay"
+          />
+        </label>
+        <div class="filter-item reload-form-item">
+          <UiButton
             type="primary"
-            color="#409eff"
             size="small"
             class="reload-btn"
             :loading="loading"
@@ -388,37 +393,35 @@ onMounted(() => {
           >
             <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
             重载
-          </NButton>
-        </NFormItem>
-      </NForm>
+          </UiButton>
+        </div>
+      </div>
     </div>
 
     <p v-if="error" class="error-tip">{{ error }}</p>
 
     <!-- 列表：全字段可排序 -->
-    <NDataTable
+    <UiTable
       :columns="columns"
       :data="sortedPaged.map(([row]) => row)"
       :loading="loading"
       :bordered="true"
-      :single-line="true"
-      :pagination="false"
       :row-props="rowProps"
-      :style="{ '--n-font-size': '14px', '--n-th-padding': '12px', '--n-td-padding': '12px' }"
       size="small"
       class="market-table"
       @update:sorter="handleSorterChange"
     />
-    <NEmpty v-if="!loading && total === 0 && !error" description="没有匹配的股票" class="empty-block" />
+    <UiEmpty v-if="!loading && total === 0 && !error" description="没有匹配的股票" class="empty-block" />
 
     <!-- 分页 -->
     <div class="pagination-wrap">
-      <NPagination
-        v-model:page="page"
+      <UiPagination
+        :page="page"
         :page-size="pageSize"
         :item-count="total"
         :page-sizes="pageSizeOptions"
         show-size-picker
+        @update:page="(value: number) => (page = value)"
         @update:page-size="(size: number) => (pageSize = size)"
       />
     </div>
@@ -450,15 +453,16 @@ onMounted(() => {
   box-shadow: 0 4px 20px rgba(15, 76, 92, 0.25);
 }
 
-.header-switch-btn {
+.page-header .header-switch-btn {
   flex-shrink: 0;
   width: 40px;
   height: 40px;
+  border-radius: 8px;
   color: rgba(255, 255, 255, 0.88);
   background: rgba(255, 255, 255, 0.1);
 }
 
-.header-switch-btn:hover {
+.page-header .header-switch-btn:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.18);
 }
@@ -490,34 +494,36 @@ onMounted(() => {
 }
 
 .filter-bar {
-  background: #fff;
+  background: var(--ui-bg-card, #fff);
   padding: 16px 20px;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-.filter-bar :deep(.n-form) {
+.filter-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 20px;
 }
 
-.filter-bar :deep(.n-form-item) {
-  margin-bottom: 0;
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
 }
 
-.filter-bar :deep(.n-form-item-feedback-wrapper) {
-  display: none;
+.filter-item__label {
+  flex: 0 0 auto;
+  color: var(--ui-text-label, #1f2225);
+  font-size: var(--ui-font-base, 14px);
+  white-space: nowrap;
 }
 
-.selector-button {
+.filter-form .selector-button {
   min-width: 112px;
-  color: #409eff;
-}
-
-.date-reset-btn {
-  margin-left: 8px;
+  color: var(--ui-color-primary, #409eff);
 }
 
 .reload-form-item {
@@ -535,31 +541,24 @@ onMounted(() => {
 }
 
 .market-table {
-  background: #fff;
+  background: var(--ui-bg-card, #fff);
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* 与 mode1 明细页一致：表头吸顶（解除 naive 滚动容器 overflow，th sticky 相对视口） */
-.market-layout :deep(.n-data-table-base-table-body.n-scrollbar),
-.market-layout :deep(.n-scrollbar-container),
-.market-layout :deep(.n-data-table-wrapper) {
-  overflow: visible;
-}
-
-.market-layout :deep(.n-data-table-thead .n-data-table-th) {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: rgb(250, 250, 252);
+/* 与迁移前一致：小号表格但 14px 字号 + 12px 单元内边距（覆盖 UiTable small 默认值） */
+.market-table :deep(.ui-table__table .ui-table__th),
+.market-table :deep(.ui-table__table .ui-table__td) {
+  padding: 12px;
+  font-size: 14px;
 }
 
 .error-tip {
-  color: #d03050;
+  color: var(--ui-color-danger, #d03050);
   padding: 8px 0;
 }
 
-.empty-block {
+.market-layout .empty-block {
   padding: 8px 0;
 }
 
@@ -573,7 +572,7 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   padding: 12px 0;
-  color: #999;
+  color: var(--ui-text-secondary, #909399);
   font-size: 13px;
 }
 </style>

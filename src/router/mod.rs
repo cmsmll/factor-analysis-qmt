@@ -2,12 +2,12 @@
 //!
 //! OpenAPI JSON 位于 `/api-doc/openapi.json`，Swagger UI 位于 `/swagger-ui`。
 
-pub mod indice_history;
+pub mod api;
 pub mod market;
 pub mod mode1;
 pub mod mode2;
 
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use salvo::prelude::*;
 use salvo_oapi::endpoint;
@@ -15,9 +15,8 @@ use serde_json::value::RawValue;
 use time::macros::date;
 
 use crate::{
-    CONFIG, DF, MODE1,
-    config::Period,
-    reject, res, resolve,
+    DF, MODE1,
+    reject, resolve,
     resp::{Res, Resp},
     router::mode1::manager::{Mode1Data, Mode1Temp},
 };
@@ -31,44 +30,13 @@ pub async fn router() -> Router {
     Router::new()
         .push(
             Router::with_path("api")
-                .push(Router::with_path("indice").get(indice).post(indice_history::indice_history))
-                .push(Router::with_path("sector").get(sector))
-                .push(Router::with_path("period").get(period))
+                .push(api::api_router())
                 .push(Router::with_path("test").get(test))
                 .push(mode1::mode1_router().await)
                 .push(mode2::mode2_router().await)
                 .push(market::market_router().await),
         )
         .get(hello)
-}
-
-/// 获取股票池指数列表。
-///
-/// 返回成分股 JSON（`data/indice.json`）中全部指数分类的去重集合。集合序列化后的顺序不固定。
-#[endpoint(
-    tags("基础数据"),
-    operation_id = "list_indices",
-    responses((status_code = 200, description = "指数列表", body = Res<HashSet<String>>))
-)]
-fn indice() -> Res<Arc<HashSet<String>>> {
-    res!(DF.indice.clone() => 200, "ok")
-}
-
-/// 获取股票池行业板块列表。
-///
-/// 返回成分股 JSON（`data/sector.json`）中全部行业分类的去重集合。
-#[endpoint(
-    tags("基础数据"),
-    operation_id = "list_sectors",
-    responses((status_code = 200, description = "行业板块列表", body = Res<HashSet<String>>))
-)]
-fn sector() -> Res<Arc<HashSet<String>>> {
-    res!(DF.sector.clone() => 200, "ok")
-}
-
-#[endpoint]
-fn period() -> Res<Vec<Period>> {
-    res!(CONFIG.period.clone() => 200, "ok")
 }
 
 /// 服务健康检查。

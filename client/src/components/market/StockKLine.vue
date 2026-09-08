@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NConfigProvider, NDatePicker, dateZhCN, zhCN } from 'naive-ui'
+import UiDatePicker from '@/components/ui/UiDatePicker.vue'
 import {
   CandlestickSeries,
   ColorType,
@@ -210,6 +210,10 @@ const pickerValue = computed<number | null>(() => {
   return value > 0 ? value : null
 })
 
+/** 日历边界:该股行情首/末根日期(毫秒;加载完成前不限界)。 */
+const rangeMinMs = ref<number | undefined>(undefined)
+const rangeMaxMs = ref<number | undefined>(undefined)
+
 /** 选择日期：定位窗口 ±半年、联动当前/8格、同步 URL query.date。 */
 function applySelectedDate(text: string): void {
   if (dataRows.length === 0) return
@@ -257,6 +261,48 @@ function setCurrentByDate(date: string | null): void {
   }
 }
 
+/** 双击锁定十字光标于某根;锁定期间鼠标移动不改变十字线/行情联动,方向键仍移动锚点,Esc 还原。 */
+const pinnedIndex = ref<number | null>(null)
+
+function pinAt(index: number): void {
+  if (!chart || !candleSeries || dataRows.length === 0) return
+  const target = Math.min(Math.max(index, 0), dataRows.length - 1)
+  const row = dataRows[target]
+  if (!row) return
+  pinnedIndex.value = target
+  const date = toChartDate(row.datetime)
+  lastHoveredDate.value = date
+  currentItem.value = toDisplayItem(row)
+  chart.setCrosshairPosition(row.close, date, candleSeries)
+}
+
+function unpin(): void {
+  if (pinnedIndex.value === null) return
+  pinnedIndex.value = null
+  chart?.clearCrosshairPosition()
+}
+
+/** 双击图表:把十字线锁定到光标所在根(坐标换算;失败回退最近悬停根,再无则最新根)。 */
+function onChartDoubleClick(event: MouseEvent): void {
+  if (dataRows.length === 0 || !chart) return
+  let target: number | undefined
+  const container = chartContainer.value
+  if (container) {
+    const rect = container.getBoundingClientRect()
+    const time = chart.timeScale().coordinateToTime(event.clientX - rect.left)
+    if (time !== undefined && time !== null) {
+      const date = chartTimeToDate(time)
+      if (date && idxByDate.has(date)) target = idxByDate.get(date)
+    }
+  }
+  if (target === undefined) {
+    const hovered = lastHoveredDate.value
+    if (hovered && idxByDate.has(hovered)) target = idxByDate.get(hovered)
+  }
+  if (target === undefined) target = dataRows.length - 1
+  pinAt(target)
+}
+
 /** 方向键逐根导航：当前根取最近悬停/选中日，无则从最新一根开始。 */
 function stepBar(direction: 1 | -1): void {
   if (dataRows.length === 0 || !chart || !candleSeries) return
@@ -274,6 +320,8 @@ function stepBar(direction: 1 | -1): void {
   setCurrentByDate(date)
   // 十字线吸附到该根（隐藏/透明系列仍在，取收盘价）
   chart.setCrosshairPosition(row.close, date, candleSeries)
+  // 锁定期间方向键移动的是锁定锚点
+  if (pinnedIndex.value !== null) pinnedIndex.value = target
 
   // 目标根临近可视边缘时平移窗口（保持缩放宽度），整段可见则不滚
   const range = chart.timeScale().getVisibleLogicalRange()
@@ -295,8 +343,13 @@ function stepBar(direction: 1 | -1): void {
   }
 }
 
-/** 键盘监听：←/→ 逐根移动；编辑态/日历弹层内不拦截。 */
+/** 键盘监听:Esc 还原锁定;←/→ 逐根移动;编辑态/日历弹层内不拦截。 */
 function handleBarKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    if (pinnedIndex.value !== null) event.preventDefault()
+    unpin()
+    return
+  }
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
   const target = event.target as HTMLElement | null
   if (
@@ -304,7 +357,7 @@ function handleBarKeydown(event: KeyboardEvent): void {
     (target.tagName === 'INPUT' ||
       target.tagName === 'TEXTAREA' ||
       target.isContentEditable ||
-      Boolean(target.closest('.n-input, .n-date-panel')))
+      Boolean(target.closest('.ui-datepicker, .ui-datepicker__panel, .ui-input, .ui-select')))
   ) {
     return
   }
@@ -480,6 +533,14 @@ function createKLineChart(
   applySeriesVisibility()
 
   crosshairHandler = (param) => {
+    // 锁定期间鼠标移动不改十字线与行情联动:每帧把十字线拉回锁定根
+    if (pinnedIndex.value !== null) {
+      const row = dataRows[pinnedIndex.value]
+      if (row && chart && candleSeries) {
+        chart.setCrosshairPosition(row.close, toChartDate(row.datetime), candleSeries)
+      }
+      return
+    }
     setCurrentByDate(chartTimeToDate(param.time))
   }
 
@@ -532,6 +593,19 @@ async function loadMarketData(): Promise<void> {
 
     rowByDate = new Map(rows.map((row) => [toChartDate(row.datetime), row]))
     idxByDate = new Map(rows.map((row, index) => [toChartDate(row.datetime), index]))
+    // 日历边界 = 该股首/末根日期(先清空再赋值,避免旧股范围残留)
+    rangeMinMs.value = undefined
+    rangeMaxMs.value = undefined
+    const firstRow = rows[0]
+    const lastRow = rows[rows.length - 1]
+    if (firstRow) {
+      const value = parseDateText(toChartDate(firstRow.datetime))
+      if (value > 0) rangeMinMs.value = value
+    }
+    if (lastRow) {
+      const value = parseDateText(toChartDate(lastRow.datetime))
+      if (value > 0) rangeMaxMs.value = value
+    }
     latestItem.value = toDisplayItem(last)
     currentItem.value = latestItem.value
     lastHoveredDate.value = null
@@ -587,6 +661,9 @@ watch(
     stockCode.value = props.code
     stockSuffix.value = ''
     dataRows = []
+    rangeMinMs.value = undefined
+    rangeMaxMs.value = undefined
+    pinnedIndex.value = null
     latestItem.value = null
     currentItem.value = null
     lastHoveredDate.value = null
@@ -596,11 +673,13 @@ watch(
 
 onMounted(() => {
   window.addEventListener('keydown', handleBarKeydown)
+  chartContainer.value?.addEventListener('dblclick', onChartDoubleClick)
   void loadMarketData()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleBarKeydown)
+  chartContainer.value?.removeEventListener('dblclick', onChartDoubleClick)
   disposeChart()
 })
 </script>
@@ -618,19 +697,17 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- 中：日期，点击直接展开日历（单步） -->
-        <NConfigProvider :locale="zhCN" :date-locale="dateZhCN">
-          <NDatePicker
-            class="header-date-picker"
-            :value="pickerValue"
-            type="date"
-            size="small"
-            :clearable="false"
-            :placeholder="'—'"
-            format="yyyy-MM-dd"
-            to=".stock-page"
-            @update:value="onDatePick"
-          />
-        </NConfigProvider>
+        <UiDatePicker
+          class="header-date-picker"
+          :value="pickerValue"
+          :min="rangeMinMs"
+          :max="rangeMaxMs"
+          size="small"
+          :clearable="false"
+          :placeholder="'—'"
+          format="yyyy-MM-dd"
+          @update:value="onDatePick"
+        />
 
         <!-- 右：价格与涨跌幅 -->
         <div v-if="currentItem" class="price-row price-cell">
@@ -833,35 +910,32 @@ onBeforeUnmount(() => {
   width: 160px;
 }
 
-/* naive 用 .n-input__border/.n-input__state-border 按 --n-border 画边框：
-   直接覆盖其主题变量（inline 定义，需 !important），并把输入底色置透明 */
-.stock-page :deep(.header-date-picker .n-input),
-.stock-page :deep(.header-date-picker .n-input:hover),
-.stock-page :deep(.header-date-picker .n-input.n-input--focus),
-.stock-page :deep(.header-date-picker .n-input.n-input--active) {
-  --n-border: none !important;
-  --n-border-hover: none !important;
-  --n-border-focus: none !important;
-  --n-border-disabled: none !important;
-  --n-box-shadow-focus: none !important;
-  --n-color: transparent !important;
-  --n-color-focus: transparent !important;
-  border: none !important;
-  border-color: transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.stock-page :deep(.header-date-picker .n-input__input-el),
-.stock-page :deep(.header-date-picker .n-input__input) {
+/* 本地 UiDatePicker：去掉输入框外观（无边框、透明底），保留大号居中日期文本 */
+.stock-page :deep(.header-date-picker .ui-datepicker__trigger),
+.stock-page :deep(.header-date-picker .ui-datepicker__trigger:hover:not(:disabled)),
+.stock-page :deep(.header-date-picker .ui-datepicker__trigger[aria-expanded='true']) {
+  border: none;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
   color: #e2e8f0;
   font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.stock-page :deep(.header-date-picker .ui-datepicker__trigger) {
+  height: auto;
+  padding: 0 4px;
+  justify-content: center;
+}
+
+.stock-page :deep(.header-date-picker .ui-datepicker__text) {
   text-align: center;
 }
 
-.stock-page :deep(.header-date-picker .n-input__suffix) {
+.stock-page :deep(.header-date-picker .ui-datepicker__icon),
+.stock-page :deep(.header-date-picker .ui-datepicker__clear) {
   display: none;
 }
 

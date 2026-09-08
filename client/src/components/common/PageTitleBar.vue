@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton } from 'naive-ui'
+import UiButton from '@/components/ui/UiButton.vue'
 
 defineOptions({ name: 'PageTitleBar' })
 
@@ -20,7 +20,7 @@ const emit = defineEmits<{ (e: 'back'): void; (e: 'detail'): void }>()
 
 <template>
   <div class="page-title-bar">
-    <NButton text size="small" class="back-btn" aria-label="返回" @click="emit('back')">
+    <UiButton type="text" size="small" class="back-btn" aria-label="返回" @click="emit('back')">
       <template #icon>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="back-icon">
           <path
@@ -42,11 +42,11 @@ const emit = defineEmits<{ (e: 'back'): void; (e: 'detail'): void }>()
         </svg>
       </template>
       返回
-    </NButton>
+    </UiButton>
     <h2 class="factor-title" :title="titleTip">{{ title }}</h2>
-    <NButton v-if="showDetail" text size="small" class="detail-btn" @click="emit('detail')">
+    <UiButton v-if="showDetail" type="text" size="small" class="detail-btn" @click="emit('detail')">
       明细
-    </NButton>
+    </UiButton>
   </div>
 </template>
 
@@ -63,8 +63,8 @@ const emit = defineEmits<{ (e: 'back'): void; (e: 'detail'): void }>()
 
 .back-btn {
   flex-shrink: 0;
-  color: var(--n-text-color);
-  font-size: 13px;
+  color: var(--ui-text-regular, #606266);
+  font-size: var(--ui-font-sm, 13px);
 }
 
 .back-icon {
