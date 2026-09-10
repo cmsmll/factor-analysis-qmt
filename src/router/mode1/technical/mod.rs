@@ -10,6 +10,7 @@ pub mod bollinger;
 pub mod cci_n;
 pub mod cr_n;
 pub mod ema_close_n;
+pub mod gap_ratio;
 pub mod macd;
 pub mod mass;
 pub mod psy_n;

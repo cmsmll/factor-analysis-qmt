@@ -20,7 +20,7 @@ pub use emotion::{
 };
 pub use momentum::{linreg_n, price_mean_n, pvt, pvt_n, roc_n, trix_n};
 pub use risk::{amplitude, atr_n, return_stat_n};
-pub use technical::{arbr, aroon, bbi, bias_n, bollinger, cci_n, cr_n, ema_close_n, macd, mass, psy_n, sma_close_n};
+pub use technical::{arbr, aroon, bbi, bias_n, bollinger, cci_n, cr_n, ema_close_n, gap_ratio, macd, mass, psy_n, sma_close_n};
 
 pub const BASIC_DERIVED: &str = "基础科目及衍生类因子";
 pub const QUALITY: &str = "质量类因子";
@@ -75,6 +75,7 @@ pub async fn mode1_router() -> Router {
         .push(turnover_n::router().await)
         .push(turnover_rate_n::router().await)
         .push(bias_n::router().await)
+        .push(gap_ratio::router().await)
         .push(cci_n::router().await)
         .push(sma_close_n::router().await)
         .push(ema_close_n::router().await)
