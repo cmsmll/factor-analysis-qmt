@@ -16,7 +16,6 @@ import { fetchIndices, fetchSectors } from '@/api/mode1'
 import { createModeFilter, loadCachedFilter, useMode1Store } from '@/stores/mode1'
 import { MODE2_STRATEGIES, PROFIT_MODE_KEY, useMode2Store } from '@/stores/mode2'
 import { useGlobalFilterSelectorStore } from '@/stores/globalFilterSelector'
-import { useGlobalLoadingStore } from '@/stores/globalLoading'
 import { useGlobalMessageStore } from '@/stores/globalMessage'
 import type { Mode1Data, ModeFilter, ModeRequest, Period, Profit, ProfitMode } from '@/types/mode1'
 import type { Mode2History, Mode2Strategy } from '@/types/mode2'
@@ -85,12 +84,10 @@ const route = useRoute()
 const router = useRouter()
 const store = useMode1Store()
 const mode2Store = useMode2Store()
-const globalLoading = useGlobalLoadingStore()
 const globalMessage = useGlobalMessageStore()
 const filterSelector = useGlobalFilterSelectorStore()
 const { periods, items, periodLoading, listLoading, listError, periodError } = storeToRefs(store)
 const { strategyData, statsLoading: mode2StatsLoading } = storeToRefs(mode2Store)
-const { visible: globalLoadingVisible } = storeToRefs(globalLoading)
 
 // ── 看板由路由决定：/mode1 = 模式一，/mode2 = 模式二；左右按钮循环切换 ──
 const isMode2 = computed(() => route.path.startsWith('/mode2'))
@@ -191,7 +188,7 @@ const mode1Config: ListModeConfig = {
       title: '因子名称',
       align: 'center',
       sorter: true,
-      width: 300,
+      width: 260,
       ellipsis: { tooltip: true },
       render: (row: ListRow) => mode1LinkCell(row),
     },
@@ -200,7 +197,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n年化收益率',
       align: 'center',
       sorter: true,
-      width: 200,
       sortValue: (row) => (row as Mode1Row).min_year_rate,
       render: (row) => rateCell((row as Mode1Row).min_year_rate),
     },
@@ -209,7 +205,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n年化收益率',
       align: 'center',
       sorter: true,
-      width: 200,
       sortValue: (row) => (row as Mode1Row).max_year_rate,
       render: (row) => rateCell((row as Mode1Row).max_year_rate),
     },
@@ -218,7 +213,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n总收益',
       align: 'center',
       sorter: true,
-      width: 180,
       sortValue: (row) => (row as Mode1Row).min_total_profit,
       render: (row) => rateCell((row as Mode1Row).min_total_profit),
     },
@@ -227,7 +221,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n总收益',
       align: 'center',
       sorter: true,
-      width: 180,
       sortValue: (row) => (row as Mode1Row).max_total_profit,
       render: (row) => rateCell((row as Mode1Row).max_total_profit),
     },
@@ -236,7 +229,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n换手率',
       align: 'center',
       sorter: true,
-      width: 170,
       sortValue: (row) => (row as Mode1Row).min_turnover_rate,
       render: (row) => turnoverCell((row as Mode1Row).min_turnover_rate),
     },
@@ -245,7 +237,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n换手率',
       align: 'center',
       sorter: true,
-      width: 170,
       sortValue: (row) => (row as Mode1Row).max_turnover_rate,
       render: (row) => turnoverCell((row as Mode1Row).max_turnover_rate),
     },
@@ -405,9 +396,7 @@ async function reloadList(): Promise<void> {
 
 async function reloadDashboard(): Promise<void> {
   try {
-    await globalLoading.run(async () => {
-      await reloadList()
-    })
+    await reloadList()
   } catch (error) {
     globalMessage.error(errorMessage(error, '获取模式一列表失败'))
   }
@@ -448,9 +437,7 @@ async function loadPeriod(name: string) {
   applyPeriodToFilter(period)
   if (!isMode2.value) {
     try {
-      await globalLoading.run(async () => {
-        await reloadList()
-      })
+      await reloadList()
     } catch (error) {
       globalMessage.error(errorMessage(error, '获取模式一列表失败'))
     }
@@ -461,9 +448,7 @@ async function loadPeriod(name: string) {
 async function selectSectors(): Promise<void> {
   try {
     if (!sectorOptions.value) {
-      await globalLoading.run(async () => {
-        sectorOptions.value = await fetchSectors()
-      })
+      sectorOptions.value = await fetchSectors()
     }
     const result = await filterSelector.open({
       title: '行业板块',
@@ -482,9 +467,7 @@ async function selectSectors(): Promise<void> {
 async function selectIndices(): Promise<void> {
   try {
     if (!indiceOptions.value) {
-      await globalLoading.run(async () => {
-        indiceOptions.value = await fetchIndices()
-      })
+      indiceOptions.value = await fetchIndices()
     }
     const result = await filterSelector.open({
       title: '指数列表',
@@ -524,31 +507,30 @@ watch(
 
 async function initializeKanban(): Promise<void> {
   try {
-    await globalLoading.run(async () => {
-      await store.loadPeriods()
-      if (periodError.value) throw new Error(periodError.value)
+    await store.loadPeriods()
+    if (periodError.value) throw new Error(periodError.value)
 
-      const period = periods.value[0]
-      if (!period) throw new Error('没有可用的时间周期配置')
+    const period = periods.value[0]
+    if (!period) throw new Error('没有可用的时间周期配置')
 
-      const cachedFilter = loadCachedFilter()
-      if (cachedFilter) {
-        settingInitialPeriod = true
-        const matchingPeriod = periods.value.find(
-          (p) => p.start === cachedFilter.start && p.end === cachedFilter.end,
-        )
-        filters.period = matchingPeriod?.name || period.name
-        settingInitialPeriod = false
-        Object.assign(listFilter, cachedFilter)
-        if (!isMode2.value) await reloadList()
-      } else {
-        settingInitialPeriod = true
-        filters.period = period.name
-        settingInitialPeriod = false
-        resetListFilter(period)
-        if (!isMode2.value) await reloadList()
-      }
-    })
+    const cachedFilter = loadCachedFilter()
+    if (cachedFilter) {
+      settingInitialPeriod = true
+      const matchingPeriod = periods.value.find(
+        (p) => p.start === cachedFilter.start && p.end === cachedFilter.end,
+      )
+      filters.period = matchingPeriod?.name || period.name
+      settingInitialPeriod = false
+      Object.assign(listFilter, cachedFilter)
+      if (!isMode2.value) await reloadList()
+    } else {
+      settingInitialPeriod = true
+      filters.period = period.name
+      settingInitialPeriod = false
+      resetListFilter(period)
+      if (!isMode2.value) await reloadList()
+    }
+
     const savedMode = Number(localStorage.getItem(PROFIT_MODE_KEY) ?? '')
     if (Number.isInteger(savedMode) && savedMode >= 1 && savedMode <= 4) {
       filters.profitMode = savedMode as ProfitMode
@@ -668,7 +650,7 @@ const columns = computed<UiSortColumn[]>(() => [
     title: '序号',
     key: 'index',
     align: 'center',
-    width: 80,
+    width: 70,
     sorter: true,
     sortOrder: sortKey.value === 'index' ? sortOrder.value : false,
     sortValue: (row: ListRow) => row._pos,
@@ -829,7 +811,7 @@ function handlePageSizeChange(value: number) {
             type="primary"
             size="small"
             class="reload-btn"
-            :loading="tableLoading && !globalLoadingVisible"
+            :loading="tableLoading"
             :disabled="periodLoading || listLoading"
             @click="handleReload"
           >

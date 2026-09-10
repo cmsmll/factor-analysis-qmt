@@ -25,7 +25,7 @@ const RenderNode = defineComponent({
 export interface UiTableColumn<T = any> {
   title?: string
   key?: string
-  /** 数值按 px 参与固定列宽；缺省列由组件按剩余宽度均分（自适应） */
+  /** 数值按 px 固定列宽;字符串按 CSS grid 写法透传(如 '2fr'/'minmax(140px,1fr)');缺省该列以 1fr 均分剩余 */
   width?: number | string
   align?: 'left' | 'center' | 'right'
   /** 显式关闭该列排序（默认除操作列外全部可排） */
@@ -53,6 +53,7 @@ const props = withDefaults(
     bordered?: boolean
     singleLine?: boolean
     loading?: boolean
+    /** 兼容保留：grid 布局下仅当全固定 px 列溢出时自动横向滚动 */
     scrollX?: number | string
     /** naive 兼容：v-model:expanded-row-keys */
     expandedRowKeys?: Array<string | number>
@@ -75,41 +76,47 @@ function keyOf(row: unknown, index: number): RowKey {
   return props.rowKey ? props.rowKey(row, index) : index
 }
 
-// ── 列宽：显式 px 优先，其余均分剩余宽度(自适应) ──
-const rootRef = ref<HTMLDivElement | null>(null)
-const colWidths = ref<number[]>([])
-const isHScroll = ref(false)
-
-function refreshWidths(): void {
-  const root = rootRef.value
-  if (!root) return
-  const border = props.bordered ? 2 : 0
-  const available = Math.max(root.clientWidth - border, 0)
-  const fixed = props.columns.reduce(
+// ── 列模板(CSS Grid):width=px 固定;字符串直通 grid 写法;缺省 minmax(0,1fr) 均分 ──
+const fixedPxTotal = computed(() =>
+  props.columns.reduce(
     (sum, column) => sum + (typeof column.width === 'number' ? column.width : 0),
     0,
-  )
-  const autoCount = props.columns.filter((column) => typeof column.width !== 'number').length
-  const auto = autoCount > 0 ? Math.max(64, Math.floor((available - fixed) / autoCount)) : 0
-  colWidths.value = props.columns.map((column) =>
-    typeof column.width === 'number' ? column.width : auto,
-  )
-  const total = colWidths.value.reduce((sum, width) => sum + width, 0)
-  // 仅在列宽总和确实超过容器时才启用横向滚动(否则容器会破坏表头吸顶)
-  isHScroll.value = total > available + 2
-}
+  ),
+)
+const hasFrColumn = computed(
+  () =>
+    props.columns.filter((column) => typeof column.width !== 'number').length > 0 ||
+    props.columns.some((column) => typeof column.width === 'string' && /\d*fr/.test(column.width as string)),
+)
 
+const gridColumns = computed(() =>
+  props.columns
+    .map((column) => {
+      if (typeof column.width === 'number') return `${column.width}px`
+      if (typeof column.width === 'string') return column.width
+      return 'minmax(0, 1fr)'
+    })
+    .join(' '),
+)
+
+const containerWidth = ref(0)
+const rootRef = ref<HTMLDivElement | null>(null)
 let widthObserver: ResizeObserver | null = null
 
-watch(
-  () => props.columns.map((column) => `${column.key ?? ''}:${column.width ?? ''}`).join('|'),
-  () => refreshWidths(),
+function measureWidth(): void {
+  const root = rootRef.value
+  if (!root) return
+  containerWidth.value = root.clientWidth
+}
+
+const isHScroll = computed(
+  () => !hasFrColumn.value && fixedPxTotal.value > containerWidth.value + 2,
 )
 
 onMounted(() => {
-  refreshWidths()
+  measureWidth()
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
-    widthObserver = new ResizeObserver(() => refreshWidths())
+    widthObserver = new ResizeObserver(() => measureWidth())
     widthObserver.observe(rootRef.value)
   }
 })
@@ -118,8 +125,6 @@ onBeforeUnmount(() => {
   widthObserver?.disconnect()
   widthObserver = null
 })
-
-const totalMinWidth = computed(() => colWidths.value.reduce((sum, width) => sum + width, 0))
 
 // ── 排序：除操作列/序号外全部数据列默认可排 ──
 type ColumnSortState = { key: string; order: SortOrder; fn?: (a: unknown, b: unknown) => number }
@@ -162,7 +167,10 @@ const sortedData = computed(() => {
   const state = internalSorter.value
   if (!state || state.order === false) return props.data
   const column = props.columns.find((item) => item.key === state.key)
-  const fn = typeof column?.sorter === 'function' ? (column.sorter as (a: unknown, b: unknown) => number) : undefined
+  const fn =
+    typeof column?.sorter === 'function'
+      ? (column.sorter as (a: unknown, b: unknown) => number)
+      : undefined
   const direction = state.order === 'ascend' ? 1 : -1
   const copy = [...props.data]
   copy.sort((a, b) => compareRows(a, b, state.key, fn) * direction)
@@ -285,110 +293,116 @@ function expandContent(row: unknown): unknown {
       { 'has-border': bordered, 'is-single-line': singleLine },
     ]"
   >
-    <div class="ui-table__scroll" :class="{ 'is-hscroll': isHScroll }">
-      <table
-        class="ui-table__table"
-        :style="{
-          width: isHScroll ? `${Math.max(totalMinWidth, 100)}px` : '100%',
-          minWidth: scrollX !== undefined ? (typeof scrollX === 'number' ? `${scrollX}px` : scrollX) : undefined,
-        }"
-      >
-        <colgroup>
-          <col v-for="(column, index) in columns" :key="index" :style="{ width: `${colWidths[index] ?? 100}px` }" />
-        </colgroup>
-        <thead class="ui-table__head">
-          <tr>
-            <th
-              v-for="(column, index) in columns"
-              :key="index"
-              class="ui-table__th"
-              :class="{ 'is-sortable': columnSortable(column) }"
-              scope="col"
-              :aria-sort="orderOf(column) === 'ascend' ? 'ascending' : orderOf(column) === 'descend' ? 'descending' : undefined"
-              @click="handleHeaderClick(column)"
-              @keydown.enter.prevent="handleHeaderClick(column)"
+    <div
+      class="ui-table__scroll"
+      :class="{ 'is-hscroll': isHScroll }"
+      :style="{ '--ui-cols': gridColumns }"
+      role="table"
+      aria-rowcount="0"
+    >
+      <!-- 表头行 -->
+      <div class="ui-table__head" role="row">
+        <div
+          v-for="(column, index) in columns"
+          :key="`h${index}`"
+          class="ui-table__head-cell"
+          :class="{ 'is-sortable': columnSortable(column) }"
+          role="columnheader"
+          :aria-sort="
+            orderOf(column) === 'ascend'
+              ? 'ascending'
+              : orderOf(column) === 'descend'
+                ? 'descending'
+                : undefined
+          "
+          @click="handleHeaderClick(column)"
+          @keydown.enter.prevent="handleHeaderClick(column)"
+        >
+          <template v-if="column.type === 'selection'">
+            <label class="ui-table__check" @click.stop>
+              <input type="checkbox" :checked="allChecked" @change="toggleCheckAll" />
+              <span class="ui-table__checkmark"></span>
+            </label>
+          </template>
+          <template v-else-if="column.type === 'expand'">
+            <span v-if="column.title" class="ui-table__title">{{ column.title }}</span>
+          </template>
+          <span v-else-if="columnSortable(column)" class="ui-table__sort-grid">
+            <span class="ui-table__side" aria-hidden="true"></span>
+            <span class="ui-table__title">{{ column.title ?? '' }}</span>
+            <span
+              class="ui-table__side ui-table__sort"
+              :class="orderOf(column) !== false ? 'is-active' : ''"
+              aria-hidden="true"
+            >
+              <svg v-if="orderOf(column) === 'ascend'" class="ui-table__sort-arrow" viewBox="0 0 1024 1024">
+                <path
+                  d="M877.863693 338.744408 557.862219 18.745191c-24.991331-24.993589-65.516166-24.993589-90.509755 0L147.353249 338.744408c-24.989073 24.993589-24.989073 65.516166 0 90.509755 24.993589 24.995847 65.518424 24.995847 90.509755 0l210.745399-210.747656 0 741.49227c0 35.347753 28.653444 64.001198 64.001198 64.001198 35.343237 0 63.99894-28.651187 63.99894-64.001198l0.002257-741.49227 210.747656 210.745399c12.494537 12.496794 28.874707 18.74632 45.25262 18.74632s32.758083-6.247268 45.254877-18.744063C902.855024 404.258316 902.855024 363.740254 877.863693 338.744408z"
+                />
+              </svg>
+              <svg v-else-if="orderOf(column) === 'descend'" class="ui-table__sort-arrow is-down" viewBox="0 0 1024 1024">
+                <path
+                  d="M877.863693 338.744408 557.862219 18.745191c-24.991331-24.993589-65.516166-24.993589-90.509755 0L147.353249 338.744408c-24.989073 24.993589-24.989073 65.516166 0 90.509755 24.993589 24.995847 65.518424 24.995847 90.509755 0l210.745399-210.747656 0 741.49227c0 35.347753 28.653444 64.001198 64.001198 64.001198 35.343237 0 63.99894-28.651187 63.99894-64.001198l0.002257-741.49227 210.747656 210.745399c12.494537 12.496794 28.874707 18.74632 45.25262 18.74632s32.758083-6.247268 45.254877-18.744063C902.855024 404.258316 902.855024 363.740254 877.863693 338.744408z"
+                />
+              </svg>
+            </span>
+          </span>
+          <span v-else class="ui-table__title">{{ column.title ?? '' }}</span>
+        </div>
+      </div>
+
+      <!-- 数据行(loading 时隐藏,仅显示加载行) -->
+      <template v-if="!loading">
+        <template v-for="(row, rowIndex) in sortedData" :key="keyOf(row, rowIndex)">
+          <div
+            class="ui-table__row"
+            :style="rowProps ? rowProps(row).style : undefined"
+            role="row"
+            @click="handleRowClick(row)"
+          >
+            <div
+              v-for="(column, columnIndex) in columns"
+              :key="columnIndex"
+              class="ui-table__cell"
+              role="cell"
             >
               <template v-if="column.type === 'selection'">
-                <label class="ui-table__check" @click.stop>
-                  <input type="checkbox" :checked="allChecked" @change="toggleCheckAll" />
+                <label class="ui-table__check">
+                  <input
+                    type="checkbox"
+                    :checked="isChecked(row, rowIndex)"
+                    @change="toggleCheck(row, rowIndex)"
+                  />
                   <span class="ui-table__checkmark"></span>
                 </label>
               </template>
-              <template v-else-if="column.type === 'expand'"></template>
-              <span v-else-if="columnSortable(column)" class="ui-table__sort-grid">
-                <span class="ui-table__side" aria-hidden="true"></span>
-                <span class="ui-table__title">{{ column.title ?? '' }}</span>
-                <span
-                  class="ui-table__side ui-table__sort"
-                  :class="orderOf(column) !== false ? 'is-active' : ''"
-                  aria-hidden="true"
-                >
-                  <svg v-if="orderOf(column) === 'ascend'" class="ui-table__sort-arrow" viewBox="0 0 1024 1024">
-                    <path
-                      d="M877.863693 338.744408 557.862219 18.745191c-24.991331-24.993589-65.516166-24.993589-90.509755 0L147.353249 338.744408c-24.989073 24.993589-24.989073 65.516166 0 90.509755 24.993589 24.995847 65.518424 24.995847 90.509755 0l210.745399-210.747656 0 741.49227c0 35.347753 28.653444 64.001198 64.001198 64.001198 35.343237 0 63.99894-28.651187 63.99894-64.001198l0.002257-741.49227 210.747656 210.745399c12.494537 12.496794 28.874707 18.74632 45.25262 18.74632s32.758083-6.247268 45.254877-18.744063C902.855024 404.258316 902.855024 363.740254 877.863693 338.744408z"
-                    />
-                  </svg>
-                  <svg v-else-if="orderOf(column) === 'descend'" class="ui-table__sort-arrow is-down" viewBox="0 0 1024 1024">
-                    <path
-                      d="M877.863693 338.744408 557.862219 18.745191c-24.991331-24.993589-65.516166-24.993589-90.509755 0L147.353249 338.744408c-24.989073 24.993589-24.989073 65.516166 0 90.509755 24.993589 24.995847 65.518424 24.995847 90.509755 0l210.745399-210.747656 0 741.49227c0 35.347753 28.653444 64.001198 64.001198 64.001198 35.343237 0 63.99894-28.651187 63.99894-64.001198l0.002257-741.49227 210.747656 210.745399c12.494537 12.496794 28.874707 18.74632 45.25262 18.74632s32.758083-6.247268 45.254877-18.744063C902.855024 404.258316 902.855024 363.740254 877.863693 338.744408z"
-                    />
-                  </svg>
-                </span>
-              </span>
-              <span v-else class="ui-table__title">{{ column.title ?? '' }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody class="ui-table__body">
-          <template v-for="(row, rowIndex) in sortedData" :key="keyOf(row, rowIndex)">
-            <tr
-              class="ui-table__row"
-              :style="rowProps ? rowProps(row).style : undefined"
-              @click="handleRowClick(row)"
-            >
-              <td v-for="(column, columnIndex) in columns" :key="columnIndex" class="ui-table__td">
-                <template v-if="column.type === 'selection'">
-                  <label class="ui-table__check">
-                    <input
-                      type="checkbox"
-                      :checked="isChecked(row, rowIndex)"
-                      @change="toggleCheck(row, rowIndex)"
-                    />
-                    <span class="ui-table__checkmark"></span>
-                  </label>
-                </template>
-                <button
-                  v-else-if="column.type === 'expand'"
-                  type="button"
-                  class="ui-table__expand"
-                  :class="{ 'is-open': localExpanded.includes(keyOf(row, rowIndex)) }"
-                  aria-label="展开/收起"
-                  @click="toggleExpand(row, rowIndex, $event)"
-                >
-                  <svg viewBox="0 0 8 12"><path d="M1.5 1l5 5-5 5" /></svg>
-                </button>
-                <RenderNode v-else :node="cellContent(column, row, rowIndex)" />
-              </td>
-            </tr>
-            <tr v-if="localExpanded.includes(keyOf(row, rowIndex))" class="ui-table__expand-row">
-              <td class="ui-table__expand-cell" :colspan="columns.length">
-                <RenderNode :node="expandContent(row)" />
-              </td>
-            </tr>
-          </template>
-          <tr v-if="loading" class="ui-table__empty-row">
-            <td class="ui-table__empty-cell" :colspan="columns.length">
-              <div class="ui-table__loading">
-                <span class="ui-table__loading-spin"></span>
-                <span>加载中...</span>
-              </div>
-            </td>
-          </tr>
-          <tr v-else-if="!loading && sortedData.length === 0" class="ui-table__empty-row">
-            <td class="ui-table__empty-cell" :colspan="columns.length">{{ emptyText }}</td>
-          </tr>
-        </tbody>
-      </table>
+              <button
+                v-else-if="column.type === 'expand'"
+                type="button"
+                class="ui-table__expand"
+                :class="{ 'is-open': localExpanded.includes(keyOf(row, rowIndex)) }"
+                aria-label="展开/收起"
+                @click="toggleExpand(row, rowIndex, $event)"
+              >
+                <svg viewBox="0 0 8 12"><path d="M1.5 1l5 5-5 5" /></svg>
+              </button>
+              <RenderNode v-else :node="cellContent(column, row, rowIndex)" />
+            </div>
+          </div>
+          <div v-if="localExpanded.includes(keyOf(row, rowIndex))" class="ui-table__expand-row">
+            <RenderNode :node="expandContent(row)" />
+          </div>
+        </template>
+      </template>
+
+      <!-- 加载 / 空态(整行) -->
+      <div v-if="loading" class="ui-table__state">
+        <span class="ui-table__loading-spin"></span>
+        <span>加载中...</span>
+      </div>
+      <div v-else-if="!loading && sortedData.length === 0" class="ui-table__state">
+        {{ emptyText }}
+      </div>
     </div>
   </div>
 </template>
@@ -399,7 +413,6 @@ function expandContent(row: unknown): unknown {
   box-sizing: border-box;
   background: var(--ui-bg-card, #fff);
   border-radius: var(--ui-radius-lg, 8px);
-  /* 容器不裁剪内容：吸顶表头需要 overflow 可见才能相对视口滚动 */
 }
 
 .ui-table.has-border {
@@ -407,7 +420,7 @@ function expandContent(row: unknown): unknown {
   box-shadow: var(--ui-shadow-card, 0 1px 3px rgb(0 0 0 / 6%));
 }
 
-/* 列宽超容器时横向滚动(仅此情形启用,避免容器成为滚动容器破坏表头吸顶) */
+/* 全固定 px 且超出容器时才横向滚动;否则保持 overflow 可见以支持表头吸顶 */
 .ui-table__scroll {
   width: 100%;
   border-radius: var(--ui-radius-lg, 8px);
@@ -417,69 +430,54 @@ function expandContent(row: unknown): unknown {
   overflow-x: auto;
 }
 
-.ui-table__table {
-  border-spacing: 0;
-  border-collapse: separate;
-  table-layout: fixed;
-  color: var(--ui-text-control, #333639);
-  font-size: var(--ui-font-sm, 13px);
-}
-
-.ui-table--small .ui-table__table {
-  font-size: var(--ui-font-xs, 12px);
-}
-
-/* 表头与内容统一居中 */
-.ui-table__th,
-.ui-table__td {
-  box-sizing: border-box;
-  padding: 8px 6px;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-.ui-table--small .ui-table__th,
-.ui-table--small .ui-table__td {
-  padding: 6px 6px;
-}
-
-/* 圆角：容器 overflow 保持可见(吸顶)，角部由表头/末行单元格自身裁切 */
-.ui-table__th:first-child {
-  border-top-left-radius: calc(var(--ui-radius-lg, 8px) - 1px);
-}
-
-.ui-table__th:last-child {
-  border-top-right-radius: calc(var(--ui-radius-lg, 8px) - 1px);
-}
-
-.ui-table__body tr:last-child .ui-table__td:first-child {
-  border-bottom-left-radius: calc(var(--ui-radius-lg, 8px) - 1px);
-}
-
-.ui-table__body tr:last-child .ui-table__td:last-child {
-  border-bottom-right-radius: calc(var(--ui-radius-lg, 8px) - 1px);
-}
-
-/* 表头吸顶 */
-.ui-table__th {
+/* 表头(整行也是 grid,列模板同 --ui-cols;圆角在容器上,overflow 裁切表头底色) */
+.ui-table__head {
+  display: grid;
+  grid-template-columns: var(--ui-cols);
+  align-items: center;
   position: sticky;
   top: 0;
   z-index: 5;
-  color: var(--ui-text-regular, #606266);
+  border-radius: calc(var(--ui-radius-lg, 8px) - 1px) calc(var(--ui-radius-lg, 8px) - 1px) 0 0;
+  border-bottom: 1px solid var(--ui-border-lighter, #ebeef5);
   background: var(--ui-bg-header, #fafafa);
-  font-weight: 600;
+  overflow: hidden;
 }
 
-/* 标题居中：可排序列用「左右等宽预留 | 标题 | 排序钮」栅格;不可排序列(含序号)直接居中 */
+.ui-table__head-cell {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 8px 6px;
+  color: var(--ui-text-regular, #606266);
+  font-weight: 600;
+  text-align: center;
+}
+
+.ui-table__head-cell.is-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-table__head-cell.is-sortable:hover {
+  color: var(--ui-text-main, #303133);
+}
+
+/* 末行数据首尾圆角 */
+.ui-table__row:last-of-type .ui-table__cell:first-child {
+  border-bottom-left-radius: calc(var(--ui-radius-lg, 8px) - 1px);
+}
+
+.ui-table__row:last-of-type .ui-table__cell:last-child {
+  border-bottom-right-radius: calc(var(--ui-radius-lg, 8px) - 1px);
+}
+
+/* 标题(支持双行)与排序栅格 */
 .ui-table__title {
   display: inline-block;
   max-width: 100%;
   line-height: 1.4;
   vertical-align: middle;
-  /* 表头标题允许多行(如 mode1 双行标题);单元格正文仍单行省略 */
   white-space: pre-line;
   word-break: break-all;
 }
@@ -496,26 +494,20 @@ function expandContent(row: unknown): unknown {
   justify-self: center;
 }
 
-.ui-table__th.is-sortable {
-  cursor: pointer;
-  user-select: none;
-}
-
-.ui-table__th.is-sortable:hover {
-  color: var(--ui-text-main, #303133);
-}
-
 .ui-table__side {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-/* 排序箭头：默认不显示，仅当前排序列显示 ↑ / ↓ */
 .ui-table__sort {
   grid-column: 3;
   justify-self: center;
   color: var(--ui-border-light, #e4e7ed);
+}
+
+.ui-table__sort.is-active {
+  color: var(--ui-color-primary, #409eff);
 }
 
 .ui-table__sort-arrow {
@@ -525,33 +517,76 @@ function expandContent(row: unknown): unknown {
   fill: currentColor;
 }
 
-/* 下行箭头:同一长箭头路径垂直翻转 */
 .ui-table__sort-arrow.is-down {
   transform: scaleY(-1);
 }
 
-.ui-table__sort.is-active {
-  color: var(--ui-color-primary, #409eff);
-}
-
-.ui-table__td {
-  border-bottom: 1px solid var(--ui-border-extra-light, #f2f3f5);
-}
-
-.ui-table__body tr:last-child .ui-table__td {
-  border-bottom: 0;
-}
-
-.ui-table__body .ui-table__row:hover .ui-table__td {
-  background: var(--ui-bg-hover, #f5f7fa);
+/* 数据行 */
+.ui-table__row {
+  display: grid;
+  grid-template-columns: var(--ui-cols);
+  align-items: center;
 }
 
 .ui-table.is-single-line .ui-table__row {
-  height: 40px;
+  min-height: 40px;
 }
 
 .ui-table--small.is-single-line .ui-table__row {
-  height: 34px;
+  min-height: 34px;
+}
+
+.ui-table__cell {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 6px;
+  border-bottom: 1px solid var(--ui-border-extra-light, #f2f3f5);
+  color: var(--ui-text-control, #333639);
+  font-size: var(--ui-font-xs, 12px);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-table--medium .ui-table__cell {
+  font-size: var(--ui-font-sm, 13px);
+}
+
+.ui-table__row:hover .ui-table__cell {
+  background: var(--ui-bg-hover, #f5f7fa);
+}
+
+/* 展开行(整行跨列) */
+.ui-table__expand-row {
+  border-bottom: 1px solid var(--ui-border-extra-light, #f2f3f5);
+  background: var(--ui-bg-header, #fafafa);
+}
+
+/* 加载/空态 */
+.ui-table__state {
+  display: flex;
+  height: 90px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--ui-text-secondary, #909399);
+  font-size: var(--ui-font-sm, 13px);
+}
+
+.ui-table__loading-spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ui-border-light, #e4e7ed);
+  border-top-color: var(--ui-color-primary, #409eff);
+  border-radius: 50%;
+  animation: ui-table-spin 0.8s linear infinite;
+}
+
+@keyframes ui-table-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 勾选 */
@@ -600,7 +635,7 @@ function expandContent(row: unknown): unknown {
   opacity: 1;
 }
 
-/* 展开行 */
+/* 展开按钮 */
 .ui-table__expand {
   display: inline-flex;
   width: 20px;
@@ -633,38 +668,5 @@ function expandContent(row: unknown): unknown {
 
 .ui-table__expand.is-open svg {
   transform: rotate(90deg);
-}
-
-.ui-table__expand-row .ui-table__expand-cell {
-  padding: 0;
-  background: var(--ui-bg-header, #fafafa);
-}
-
-/* 空/加载态 */
-.ui-table__empty-row .ui-table__empty-cell {
-  height: 90px;
-  color: var(--ui-text-secondary, #909399);
-  text-align: center;
-}
-
-.ui-table__loading {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ui-table__loading-spin {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--ui-border-light, #e4e7ed);
-  border-top-color: var(--ui-color-primary, #409eff);
-  border-radius: 50%;
-  animation: ui-table-spin 0.8s linear infinite;
-}
-
-@keyframes ui-table-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 </style>

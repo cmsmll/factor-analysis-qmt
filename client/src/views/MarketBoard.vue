@@ -58,19 +58,26 @@ function switchBoard(step: number): void {
 async function loadList(): Promise<void> {
   loading.value = true
   error.value = ''
+  const requested = toDateText(snapshotDay.value)
   try {
     const [data, range] = await Promise.all([
-      globalLoading.run(() => fetchMarketList()),
+      globalLoading.run(() => fetchMarketList(requested)),
       fetchDataRange().catch(() => null),
     ])
     rows.value = data
-    snapshotDate.value = data[0]?.datetime ?? ''
-    if (snapshotDate.value) snapshotDay.value = parseDateText(snapshotDate.value)
+    // 带日期请求:展示该快照日;缺省请求:记录末交易日并回填日期选择器
+    snapshotDate.value = data[0]?.datetime ?? (requested ?? '')
+    if (!requested) {
+      if (snapshotDate.value) snapshotDay.value = parseDateText(snapshotDate.value)
+    }
     if (range) {
       const min = parseDateText(range.min_date)
       const max = parseDateText(range.max_date)
       dataMinMs.value = min > 0 ? min : undefined
       dataMaxMs.value = max > 0 ? max : undefined
+    }
+    if (requested && data.length === 0) {
+      error.value = `快照日 ${requested} 无行情数据（非交易日或数据缺失），请选择其他日期`
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -94,16 +101,18 @@ function toDateText(timestamp: number | null | undefined): string | undefined {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
-/** 复位：日期回到末交易日（列表不动）。 */
+/** 复位:回到末交易日(不带日期请求,由后端取 DF.end)并刷新。 */
 function resetSnapshotDay(): void {
-  if (snapshotDate.value) snapshotDay.value = parseDateText(snapshotDate.value)
+  snapshotDay.value = null
+  void loadList()
 }
 
-/** 日期仅作进入详情的 ±半年中心（列表仍为末交易日快照，不请求后端）。 */
+/** 选择快照日:按该日期向后端重新获取行情列表。 */
 function changeSnapshotDay(value: number | null): void {
   if (value === null) return
   snapshotDay.value = value
   page.value = 1
+  void loadList()
 }
 
 async function selectSectors(): Promise<void> {
@@ -215,9 +224,14 @@ const sortedPaged = computed(() => {
   return indexed.slice(start, start + pageSize.value)
 })
 
+/** 点击行:新标签页打开该股 K线(列表页保持不动,日期参数随行带入)。 */
 function openDetail(row: MarketSnapshotRow): void {
   const date = toDateText(snapshotDay.value) ?? snapshotDate.value
-  void router.push({ path: `/market/${row.code}`, query: date ? { date } : {} })
+  const url = router.resolve({
+    path: `/market/${row.code}`,
+    query: date ? { date } : {},
+  }).href
+  window.open(url, '_blank', 'noopener')
 }
 
 // ── 格式化 ──
@@ -279,16 +293,16 @@ const columns = computed<UiTableColumn<MarketSnapshotRow>[]>(() => {
       sortOrder: sortKey.value === 'no' ? sortOrder.value : false,
       render: (_row: MarketSnapshotRow, index: number) => String(offset + index + 1),
     },
-    withSort({ title: '代码', key: 'code', width: 100 }),
-    withSort({ title: '名称', key: 'name', width: 130 }),
-    withSort({ title: '涨跌幅', key: 'change_percent', width: 110, align: 'right', render: (row: MarketSnapshotRow) => changeRender(row) }),
-    withSort({ title: '开盘价', key: 'open', width: 100, align: 'right', render: (row: MarketSnapshotRow) => numberRender(row.open) }),
-    withSort({ title: '收盘价', key: 'close', width: 100, align: 'right', render: (row: MarketSnapshotRow) => numberRender(row.close) }),
-    withSort({ title: '最高价', key: 'high', width: 100, align: 'right', render: (row: MarketSnapshotRow) => numberRender(row.high) }),
-    withSort({ title: '最低价', key: 'low', width: 100, align: 'right', render: (row: MarketSnapshotRow) => numberRender(row.low) }),
-    withSort({ title: '成交额', key: 'amount', width: 120, align: 'right', render: (row: MarketSnapshotRow) => money(row.amount) }),
-    withSort({ title: '成交量', key: 'volume', width: 120, align: 'right', render: (row: MarketSnapshotRow) => hands(row.volume) }),
-    withSort({ title: '换手率', key: 'turnover_rate', width: 110, align: 'right', render: (row: MarketSnapshotRow) => pctText(row.turnover_rate) }),
+    withSort({ title: '代码', key: 'code' }),
+    withSort({ title: '名称', key: 'name' }),
+    withSort({ title: '涨跌幅', key: 'change_percent', align: 'center', render: (row: MarketSnapshotRow) => changeRender(row) }),
+    withSort({ title: '开盘价', key: 'open', render: (row: MarketSnapshotRow) => numberRender(row.open) }),
+    withSort({ title: '收盘价', key: 'close', render: (row: MarketSnapshotRow) => numberRender(row.close) }),
+    withSort({ title: '最高价', key: 'high', render: (row: MarketSnapshotRow) => numberRender(row.high) }),
+    withSort({ title: '最低价', key: 'low', render: (row: MarketSnapshotRow) => numberRender(row.low) }),
+    withSort({ title: '成交额', key: 'amount', render: (row: MarketSnapshotRow) => money(row.amount) }),
+    withSort({ title: '成交量', key: 'volume', render: (row: MarketSnapshotRow) => hands(row.volume) }),
+    withSort({ title: '换手率', key: 'turnover_rate', render: (row: MarketSnapshotRow) => pctText(row.turnover_rate) }),
   ]
 })
 

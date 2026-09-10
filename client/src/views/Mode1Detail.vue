@@ -7,8 +7,6 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiCard from '@/components/ui/UiCard.vue'
 import UiDatePicker from '@/components/ui/UiDatePicker.vue'
 import UiEmpty from '@/components/ui/UiEmpty.vue'
-import UiRadio from '@/components/ui/UiRadio.vue'
-import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 import UiSpin from '@/components/ui/UiSpin.vue'
 import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 import UiTabs from '@/components/ui/UiTabs.vue'
@@ -156,20 +154,16 @@ function rebuildQuantiles(): void {
   quantileData.value = (detail.value?.quantiles ?? []).map((group) => quantileRows(group))
 }
 
-/** 列定义与分位无关且不依赖响应式状态：模块级构建一次，避免每次渲染新建列数组触发整表更新。 */
-/**
- * 全列显式宽度——本地 UiTable 内建 table-layout:fixed 与 colgroup 列宽，
- * 列宽由声明决定，展开行内容不再参与 auto 布局的列宽分配，避免展开/收起时列宽跳动。
- */
+/** 列定义:首列(序号)与末列(展开)固定宽,中间列按 1fr 等分(本地 UiTable grid 布局)。 */
 const tableColumns: UiTableColumn<TableRow>[] = [
-  { title: '#', key: 'rank', width: 56, render: (row, index) => (row.isAvg ? '' : String(index + 1)) },
-  { title: '代码', key: 'code', width: 100 },
-  { title: '名称', key: 'name', width: 160 },
-  { title: '收盘价', key: 'close', align: 'right', width: 150, render: (row) => (row.close === null ? '--' : row.close.toFixed(2)) },
-  { title: '涨跌幅', key: 'changePercent', align: 'right', width: 110, render: (row) => renderPercent(row.changePercent) },
-  { title: '换手率', key: 'turnover', align: 'right', width: 110, render: (row) => renderTurnover(row.turnover) },
-  { title: '因子值', key: 'factor', align: 'right', width: 170, render: (row) => renderFactor(row.factor) },
-  { type: 'expand', width: 48, renderExpand },
+  { title: '序号', key: 'rank', width: 70, render: (row, index) => (row.isAvg ? '' : String(index + 1)) },
+  { title: '代码', key: 'code' },
+  { title: '名称', key: 'name' },
+  { title: '收盘价', key: 'close', render: (row) => (row.close === null ? '--' : row.close.toFixed(2)) },
+  { title: '涨跌幅', key: 'changePercent', render: (row) => renderPercent(row.changePercent) },
+  { title: '换手率', key: 'turnover', render: (row) => renderTurnover(row.turnover) },
+  { title: '因子值', key: 'factor', render: (row) => renderFactor(row.factor) },
+  { title: '#', type: 'expand', width: 40, renderExpand },
 ]
 
 /** 金额格式化：亿/万（单位：元）。 */
@@ -282,16 +276,19 @@ onMounted(async () => {
   <div class="detail-layout">
     <PageTitleBar :title="`${factorName || '因子'}·明细`" :show-detail="false" @back="backToPreview" />
     <div class="toolbar">
-      <UiRadioGroup
-        :value="quantileCount"
-        size="small"
-        :disabled="loading"
-        @update:value="changeQuantileCount"
-      >
-        <UiRadio :value="3">三分位</UiRadio>
-        <UiRadio :value="5">五分位</UiRadio>
-        <UiRadio :value="10">十分位</UiRadio>
-      </UiRadioGroup>
+      <div class="seg-group">
+        <UiButton
+          v-for="count in [3, 5, 10]"
+          :key="count"
+          size="small"
+          class="q-seg"
+          :class="{ 'is-active': quantileCount === count }"
+          :disabled="loading"
+          @click="changeQuantileCount(count)"
+        >
+          {{ count === 3 ? '三' : count === 5 ? '五' : '十' }}分位
+        </UiButton>
+      </div>
       <UiDatePicker
         v-model:value="day"
         :min="rangeMinMs"
@@ -305,21 +302,24 @@ onMounted(async () => {
       <span class="count-tip">共 {{ totalRows }} 只 · {{ detail?.count ?? quantileCount }} 分位</span>
     </div>
 
-    <UiCard v-if="loading" size="small"><UiSpin :show="true">加载中...</UiSpin></UiCard>
-    <UiCard v-else-if="error" size="small">
+    <!-- 首次无数据时用卡片加载;已有数据(切换分位/日期/查询)改由表格自身 loading 呈现 -->
+    <UiCard v-if="!detail && loading" size="small"><UiSpin :show="true">加载中...</UiSpin></UiCard>
+    <UiCard v-else-if="!detail && error" size="small">
       <div class="error-tip">{{ error }}</div>
     </UiCard>
-    <template v-else-if="detail">
+    <template v-if="detail">
       <div v-if="detail.quantiles.every((group) => group.length === 0)" class="empty-block">
         <UiEmpty description="该日期无数据（非交易日或超出数据范围）" />
       </div>
       <template v-else>
-        <UiTabs
-          type="segment"
-          :tabs="quantileTabs"
-          :value="activeQuantile"
-          @update:value="setActiveQuantile"
-        />
+        <div class="tabs-bar">
+          <UiTabs
+            type="segment"
+            :tabs="quantileTabs"
+            :value="activeQuantile"
+            @update:value="setActiveQuantile"
+          />
+        </div>
         <UiTable
           v-model:expanded-row-keys="expandedKeys"
           size="small"
@@ -327,6 +327,7 @@ onMounted(async () => {
           :data="quantileData[activeQuantile] ?? []"
           :row-key="rowKeyOf"
           :row-props="rowProps"
+          :loading="loading"
           :bordered="false"
         />
       </template>
@@ -348,6 +349,45 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+  background: var(--ui-bg-card, #fff);
+  padding: 14px 24px;
+  border-radius: 8px;
+  box-shadow: var(--ui-shadow-card, 0 1px 3px rgb(0 0 0 / 6%));
+}
+
+.seg-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.q-seg.is-active {
+  border-color: var(--ui-color-primary, #409eff);
+  color: var(--ui-color-primary, #409eff);
+  background: var(--ui-color-primary-weak, #ecf5ff);
+}
+
+.tabs-bar {
+  display: flex;
+  background: var(--ui-bg-card, #fff);
+  padding: 8px 24px;
+  border-radius: 8px;
+  box-shadow: var(--ui-shadow-card, 0 1px 3px rgb(0 0 0 / 6%));
+}
+
+/* 分位页签:grid 等分 + 明显间隔(独立胶囊观感) */
+.tabs-bar :deep(.ui-tabs) {
+  display: grid;
+  width: 100%;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  column-gap: 8px;
+}
+
+.tabs-bar :deep(.ui-tabs__item) {
+  justify-content: center;
+  margin: 0 !important;
+  border-radius: 4px !important;
 }
 
 /* 表格表头滚动吸顶 */

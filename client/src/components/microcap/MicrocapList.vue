@@ -70,7 +70,7 @@ function rowProps(row: StockItem) {
 }
 
 const columns: UiTableColumn<StockItem>[] = [
-  { title: '#', key: 'rank', width: 48, render: (_row, index) => index + 1 },
+  { title: '#', key: 'rank', width: 70, render: (_row, index) => index + 1 },
   { title: '代码', key: 'code', width: 80 },
   { title: '名称', key: 'name', width: 110 },
   { title: '收盘价', key: 'factor', render: (row) => formatFactor(row.factor) },
@@ -94,6 +94,7 @@ const columns: UiTableColumn<StockItem>[] = [
   },
   {
     type: 'expand',
+    width: 40,
     renderExpand: (row: StockItem) =>
       h('div', { class: 'expand-row' }, [
         `开盘 ${row.open.toFixed(2)}｜最高 ${row.high.toFixed(2)}｜最低 ${row.low.toFixed(2)}｜收盘 ${row.close.toFixed(2)}｜`,

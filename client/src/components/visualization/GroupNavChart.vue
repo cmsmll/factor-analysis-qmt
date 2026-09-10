@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiRadio from '@/components/ui/UiRadio.vue'
-import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
 import { fetchIndiceHistory, fetchIndices } from '@/api/mode1'
 import CloseIcon from '@/assets/icons/icon-close.svg'
 import SearchIcon from '@/assets/icons/search.svg'
@@ -97,7 +95,7 @@ const pendingIndices = ref<Set<string>>(new Set())
 const sortLabel = computed(() => {
   if (sortMode.value === 1) return '↓ 降序'
   if (sortMode.value === 2) return '↑ 升序'
-  return '默认'
+  return '排序'
 })
 
 const COLORS = [
@@ -268,20 +266,30 @@ onBeforeUnmount(() => {
     <div class="chart-card-header">
       <span class="chart-title">分组收益曲线</span>
       <div class="header-controls">
-        <UiButton size="small" variant="secondary" @click="openPicker">指数同框</UiButton>
-        <UiButton class="sort-btn" size="tiny" variant="quaternary" @click="sortMode = (sortMode + 1) % 3">
+        <UiButton
+          size="small"
+          :variant="checkedIndices.size > 0 ? 'secondary' : ''"
+          @click="openPicker"
+        >指数同框</UiButton>
+        <UiButton
+          size="small"
+          class="q-seg"
+          :class="{ 'is-active': sortMode !== 0 }"
+          @click="sortMode = (sortMode + 1) % 3"
+        >
           {{ sortLabel }}
         </UiButton>
-        <UiRadioGroup
-          :value="quantileCount"
-          :disabled="loading"
+        <UiButton
+          v-for="count in [3, 5, 10]"
+          :key="count"
           size="small"
-          @update:value="emit('update:quantileCount', Number($event))"
+          class="q-seg"
+          :class="{ 'is-active': quantileCount === count }"
+          :disabled="loading"
+          @click="emit('update:quantileCount', count)"
         >
-          <UiRadio :value="3">三分位</UiRadio>
-          <UiRadio :value="5">五分位</UiRadio>
-          <UiRadio :value="10">十分位</UiRadio>
-        </UiRadioGroup>
+          {{ count === 3 ? '三' : count === 5 ? '五' : '十' }}分位
+        </UiButton>
       </div>
     </div>
         <div class="chart-body" @click="onChartClick">
@@ -375,9 +383,11 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.sort-btn {
-  font-size: 14px !important;
-  color: var(--ui-text-main) !important;
+/* 分位切换:三颗按钮直接在 header-controls 外层,吃外部 gap */
+.q-seg.is-active {
+  border-color: var(--ui-color-primary, #409eff);
+  color: var(--ui-color-primary, #409eff);
+  background: var(--ui-color-primary-weak, #ecf5ff);
 }
 
 .chart-title {

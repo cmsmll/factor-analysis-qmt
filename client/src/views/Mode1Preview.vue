@@ -648,7 +648,13 @@ onMounted(() => {
 }
 
 .filter-bar .core-input {
-  width: 112px;
+  width: 80px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.filter-bar .core-input :deep(.ui-input-number__control) {
+  height: 100%;
 }
 
 .filter-bar .core-input :deep(.ui-input-number__steps) {
