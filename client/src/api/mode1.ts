@@ -20,6 +20,51 @@ export async function fetchPeriods(): Promise<Period[]> {
   return data
 }
 
+/** 全市场数据日期区间(YYYY-MM-DD)：日历选择器可选边界。 */
+export interface DataRange {
+  min_date: string
+  max_date: string
+}
+
+export async function fetchDataRange(): Promise<DataRange> {
+  const data = await request<DataRange>('/api/range')
+
+  if (
+    !data ||
+    typeof data.min_date !== 'string' ||
+    typeof data.max_date !== 'string' ||
+    !data.min_date ||
+    !data.max_date
+  ) {
+    throw new Error('数据日期区间格式不正确')
+  }
+
+  return data
+}
+
+/** 查询单只股票自身行情时间范围(YYYY-MM-DD)：POST /api/range。 */
+export async function fetchStockRange(code: string): Promise<DataRange> {
+  const data = await request<DataRange>('/api/range', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ code }),
+  })
+
+  if (
+    !data ||
+    typeof data.min_date !== 'string' ||
+    typeof data.max_date !== 'string' ||
+    !data.min_date ||
+    !data.max_date
+  ) {
+    throw new Error('单股数据日期区间格式不正确')
+  }
+
+  return data
+}
+
 export async function fetchSectors(): Promise<string[]> {
   return fetchFilterOptions('/api/sector', '行业板块')
 }

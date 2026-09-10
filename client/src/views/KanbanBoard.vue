@@ -3,25 +3,19 @@ import { computed, h, onMounted, reactive, ref, watch, type VNode } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { boardStepPath } from '@/utils/boardNav'
 import { storeToRefs } from 'pinia'
-import {
-  NButton,
-  NConfigProvider,
-  NDataTable,
-  NEmpty,
-  NForm,
-  NFormItem,
-  NInput,
-  NPagination,
-  NSelect,
-  type DataTableColumns,
-} from 'naive-ui'
+
+import UiButton from '@/components/ui/UiButton.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiPagination from '@/components/ui/UiPagination.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 
 import RefreshIcon from '@/assets/icons/refresh.svg'
 import { fetchIndices, fetchSectors } from '@/api/mode1'
 import { createModeFilter, loadCachedFilter, useMode1Store } from '@/stores/mode1'
 import { MODE2_STRATEGIES, PROFIT_MODE_KEY, useMode2Store } from '@/stores/mode2'
 import { useGlobalFilterSelectorStore } from '@/stores/globalFilterSelector'
-import { useGlobalLoadingStore } from '@/stores/globalLoading'
 import { useGlobalMessageStore } from '@/stores/globalMessage'
 import type { Mode1Data, ModeFilter, ModeRequest, Period, Profit, ProfitMode } from '@/types/mode1'
 import type { Mode2History, Mode2Strategy } from '@/types/mode2'
@@ -81,16 +75,19 @@ interface Mode2Row {
 
 type ListRow = Mode1Row | Mode2Row
 
+/** UiTable 列：受控排序（sorter + sortOrder 由页面状态驱动）；sortValue 仅供页面排序取值 */
+interface UiSortColumn extends UiTableColumn<ListRow> {
+  sortValue?: (row: ListRow) => number | string | undefined
+}
+
 const route = useRoute()
 const router = useRouter()
 const store = useMode1Store()
 const mode2Store = useMode2Store()
-const globalLoading = useGlobalLoadingStore()
 const globalMessage = useGlobalMessageStore()
 const filterSelector = useGlobalFilterSelectorStore()
 const { periods, items, periodLoading, listLoading, listError, periodError } = storeToRefs(store)
 const { strategyData, statsLoading: mode2StatsLoading } = storeToRefs(mode2Store)
-const { visible: globalLoadingVisible } = storeToRefs(globalLoading)
 
 // ── 看板由路由决定：/mode1 = 模式一，/mode2 = 模式二；左右按钮循环切换 ──
 const isMode2 = computed(() => route.path.startsWith('/mode2'))
@@ -102,8 +99,8 @@ function switchKanban(step: number) {
 
 // ── 通用渲染器 ──
 function rateColor(value: number | undefined): string {
-  if (value === undefined || value === 0) return '#1f2225'
-  return value > 0 ? '#d03050' : '#18a058'
+  if (value === undefined || value === 0) return 'var(--ui-text-main)'
+  return value > 0 ? 'var(--ui-color-up)' : 'var(--ui-color-down)'
 }
 
 function formatPercent(value: number | undefined): string {
@@ -191,7 +188,7 @@ const mode1Config: ListModeConfig = {
       title: '因子名称',
       align: 'center',
       sorter: true,
-      width: 300,
+      width: 260,
       ellipsis: { tooltip: true },
       render: (row: ListRow) => mode1LinkCell(row),
     },
@@ -200,7 +197,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n年化收益率',
       align: 'center',
       sorter: true,
-      width: 200,
       sortValue: (row) => (row as Mode1Row).min_year_rate,
       render: (row) => rateCell((row as Mode1Row).min_year_rate),
     },
@@ -209,7 +205,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n年化收益率',
       align: 'center',
       sorter: true,
-      width: 200,
       sortValue: (row) => (row as Mode1Row).max_year_rate,
       render: (row) => rateCell((row as Mode1Row).max_year_rate),
     },
@@ -218,7 +213,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n总收益',
       align: 'center',
       sorter: true,
-      width: 180,
       sortValue: (row) => (row as Mode1Row).min_total_profit,
       render: (row) => rateCell((row as Mode1Row).min_total_profit),
     },
@@ -227,7 +221,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n总收益',
       align: 'center',
       sorter: true,
-      width: 180,
       sortValue: (row) => (row as Mode1Row).max_total_profit,
       render: (row) => rateCell((row as Mode1Row).max_total_profit),
     },
@@ -236,7 +229,6 @@ const mode1Config: ListModeConfig = {
       title: '最小分位数\n换手率',
       align: 'center',
       sorter: true,
-      width: 170,
       sortValue: (row) => (row as Mode1Row).min_turnover_rate,
       render: (row) => turnoverCell((row as Mode1Row).min_turnover_rate),
     },
@@ -245,7 +237,6 @@ const mode1Config: ListModeConfig = {
       title: '最大分位数\n换手率',
       align: 'center',
       sorter: true,
-      width: 170,
       sortValue: (row) => (row as Mode1Row).max_turnover_rate,
       render: (row) => turnoverCell((row as Mode1Row).max_turnover_rate),
     },
@@ -405,9 +396,7 @@ async function reloadList(): Promise<void> {
 
 async function reloadDashboard(): Promise<void> {
   try {
-    await globalLoading.run(async () => {
-      await reloadList()
-    })
+    await reloadList()
   } catch (error) {
     globalMessage.error(errorMessage(error, '获取模式一列表失败'))
   }
@@ -448,9 +437,7 @@ async function loadPeriod(name: string) {
   applyPeriodToFilter(period)
   if (!isMode2.value) {
     try {
-      await globalLoading.run(async () => {
-        await reloadList()
-      })
+      await reloadList()
     } catch (error) {
       globalMessage.error(errorMessage(error, '获取模式一列表失败'))
     }
@@ -461,9 +448,7 @@ async function loadPeriod(name: string) {
 async function selectSectors(): Promise<void> {
   try {
     if (!sectorOptions.value) {
-      await globalLoading.run(async () => {
-        sectorOptions.value = await fetchSectors()
-      })
+      sectorOptions.value = await fetchSectors()
     }
     const result = await filterSelector.open({
       title: '行业板块',
@@ -482,9 +467,7 @@ async function selectSectors(): Promise<void> {
 async function selectIndices(): Promise<void> {
   try {
     if (!indiceOptions.value) {
-      await globalLoading.run(async () => {
-        indiceOptions.value = await fetchIndices()
-      })
+      indiceOptions.value = await fetchIndices()
     }
     const result = await filterSelector.open({
       title: '指数列表',
@@ -524,31 +507,30 @@ watch(
 
 async function initializeKanban(): Promise<void> {
   try {
-    await globalLoading.run(async () => {
-      await store.loadPeriods()
-      if (periodError.value) throw new Error(periodError.value)
+    await store.loadPeriods()
+    if (periodError.value) throw new Error(periodError.value)
 
-      const period = periods.value[0]
-      if (!period) throw new Error('没有可用的时间周期配置')
+    const period = periods.value[0]
+    if (!period) throw new Error('没有可用的时间周期配置')
 
-      const cachedFilter = loadCachedFilter()
-      if (cachedFilter) {
-        settingInitialPeriod = true
-        const matchingPeriod = periods.value.find(
-          (p) => p.start === cachedFilter.start && p.end === cachedFilter.end,
-        )
-        filters.period = matchingPeriod?.name || period.name
-        settingInitialPeriod = false
-        Object.assign(listFilter, cachedFilter)
-        if (!isMode2.value) await reloadList()
-      } else {
-        settingInitialPeriod = true
-        filters.period = period.name
-        settingInitialPeriod = false
-        resetListFilter(period)
-        if (!isMode2.value) await reloadList()
-      }
-    })
+    const cachedFilter = loadCachedFilter()
+    if (cachedFilter) {
+      settingInitialPeriod = true
+      const matchingPeriod = periods.value.find(
+        (p) => p.start === cachedFilter.start && p.end === cachedFilter.end,
+      )
+      filters.period = matchingPeriod?.name || period.name
+      settingInitialPeriod = false
+      Object.assign(listFilter, cachedFilter)
+      if (!isMode2.value) await reloadList()
+    } else {
+      settingInitialPeriod = true
+      filters.period = period.name
+      settingInitialPeriod = false
+      resetListFilter(period)
+      if (!isMode2.value) await reloadList()
+    }
+
     const savedMode = Number(localStorage.getItem(PROFIT_MODE_KEY) ?? '')
     if (Number.isInteger(savedMode) && savedMode >= 1 && savedMode <= 4) {
       filters.profitMode = savedMode as ProfitMode
@@ -662,33 +644,38 @@ const rows = computed<ListRow[]>(() => {
 })
 
 // 序号列：统一自动前置（按分页偏移连续编号），两 mode 都有且可排序（按原位置）
-const columns = computed<DataTableColumns<ListRow>>(() => [
+// 排序为受控流：sorter: true + sortOrder（页面状态），点击由 @update:sorter 回到 handleSorterChange
+const columns = computed<UiSortColumn[]>(() => [
   {
     title: '序号',
     key: 'index',
     align: 'center',
-    width: 80,
+    width: 70,
     sorter: true,
+    sortOrder: sortKey.value === 'index' ? sortOrder.value : false,
     sortValue: (row: ListRow) => row._pos,
     render: (_row: ListRow, index: number) =>
       h('span', { style: { 'white-space': 'nowrap' } }, String(offset.value + index + 1)),
   },
-  ...config.value.columns.map((column) => ({
-    ...column,
-    render: column.render
-      ? (row: ListRow, index: number) => column.render!(row, index)
-      : (row: ListRow) => {
-          const value = column.sortValue
-            ? column.sortValue(row)
-            : (row as unknown as Record<string, unknown>)[column.key]
-          return value === undefined || value === null || value === ''
-            ? '--'
-            : String(value)
-        },
-  })),
+  ...config.value.columns.map(
+    (column): UiSortColumn => ({
+      ...column,
+      sortOrder: sortKey.value === column.key ? sortOrder.value : false,
+      render: column.render
+        ? (row: ListRow, index: number) => column.render!(row, index)
+        : (row: ListRow) => {
+            const value = column.sortValue
+              ? column.sortValue(row)
+              : (row as unknown as Record<string, unknown>)[column.key]
+            return value === undefined || value === null || value === ''
+              ? '--'
+              : String(value)
+          },
+    }),
+  ),
 ])
 
-const rowKey = (row: ListRow) =>
+const rowKey = (row: unknown): string =>
   isMode2.value
     ? (row as Mode2Row).strategy.key
     : `${(row as Mode1Row).id}:${(row as Mode1Row).sourceIndex}`
@@ -725,146 +712,151 @@ function handlePageSizeChange(value: number) {
 </script>
 
 <template>
-  <NConfigProvider>
-    <div class="factorKanban-layout">
-      <!-- 标题：背景 + 名称 + 注释 + 左右切换按钮 -->
-      <header
-        class="page-header"
-        :style="{ background: config.header.gradient, boxShadow: config.header.shadow }"
+  <div class="factorKanban-layout">
+    <!-- 标题：背景 + 名称 + 注释 + 左右切换按钮 -->
+    <header
+      class="page-header"
+      :style="{ background: config.header.gradient, boxShadow: config.header.shadow }"
+    >
+      <UiButton
+        type="text"
+        class="header-switch-btn"
+        aria-label="上一看板"
+        @click="switchKanban(-1)"
       >
-        <NButton text circle class="header-switch-btn" aria-label="上一看板" @click="switchKanban(-1)">
-          <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-              <path
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-                d="M328 112L184 256l144 144"
-              ></path>
-            </svg>
-          </template>
-        </NButton>
-        <div class="header-content">
-          <h1 class="page-title">{{ config.header.title }}</h1>
-          <p class="page-subtitle">{{ config.header.subtitle }}</p>
+        <template #icon>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="48"
+              d="M328 112L184 256l144 144"
+            ></path>
+          </svg>
+        </template>
+      </UiButton>
+      <div class="header-content">
+        <h1 class="page-title">{{ config.header.title }}</h1>
+        <p class="page-subtitle">{{ config.header.subtitle }}</p>
+      </div>
+      <UiButton
+        type="text"
+        class="header-switch-btn"
+        aria-label="下一看板"
+        @click="switchKanban(1)"
+      >
+        <template #icon>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="48"
+              d="M184 112l144 144-144 144"
+            ></path>
+          </svg>
+        </template>
+      </UiButton>
+    </header>
+
+    <!-- 过滤：搜索栏名称随配置，其余两 mode 一致 -->
+    <div class="filter-bar">
+      <div class="filter-form">
+        <label class="filter-item">
+          <span class="filter-item__label">{{ config.search.label }}</span>
+          <UiInput
+            v-model:value="searchInput"
+            :placeholder="config.search.placeholder"
+            clearable
+            size="small"
+            style="width: 180px"
+          />
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">行业板块</span>
+          <UiButton size="small" class="selector-button" @click="selectSectors">
+            {{ listFilter.sector.length ? `已选 ${listFilter.sector.length} 项` : '全部行业' }}
+          </UiButton>
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">指数列表</span>
+          <UiButton size="small" class="selector-button" @click="selectIndices">
+            {{ listFilter.indice.length ? `已选 ${listFilter.indice.length} 项` : '全部指数' }}
+          </UiButton>
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">时间周期</span>
+          <UiSelect
+            v-model:value="filters.period"
+            :options="periodOptions"
+            :disabled="periodLoading || listLoading"
+            size="small"
+            style="width: 140px"
+          />
+        </label>
+        <label class="filter-item">
+          <span class="filter-item__label">收益模式</span>
+          <UiSelect
+            v-model:value="filters.profitMode"
+            :options="profitModeOptions"
+            size="small"
+            style="width: 260px"
+          />
+        </label>
+        <div class="filter-item reload-form-item">
+          <UiButton
+            type="primary"
+            size="small"
+            class="reload-btn"
+            :loading="tableLoading"
+            :disabled="periodLoading || listLoading"
+            @click="handleReload"
+          >
+            <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
+            重载
+          </UiButton>
         </div>
-        <NButton text circle class="header-switch-btn" aria-label="下一看板" @click="switchKanban(1)">
-          <template #icon>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-              <path
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-                d="M184 112l144 144-144 144"
-              ></path>
-            </svg>
-          </template>
-        </NButton>
-      </header>
-
-      <!-- 过滤：搜索栏名称随配置，其余两 mode 一致 -->
-      <div class="filter-bar">
-        <NForm layout="inline" label-placement="left" size="small">
-          <NFormItem :label="config.search.label">
-            <NInput
-              v-model:value="searchInput"
-              :placeholder="config.search.placeholder"
-              clearable
-              style="width: 180px"
-            />
-          </NFormItem>
-          <NFormItem label="行业板块">
-            <NButton size="small" class="selector-button" @click="selectSectors">
-              {{ listFilter.sector.length ? `已选 ${listFilter.sector.length} 项` : '全部行业' }}
-            </NButton>
-          </NFormItem>
-          <NFormItem label="指数列表">
-            <NButton size="small" class="selector-button" @click="selectIndices">
-              {{ listFilter.indice.length ? `已选 ${listFilter.indice.length} 项` : '全部指数' }}
-            </NButton>
-          </NFormItem>
-          <NFormItem label="时间周期">
-            <NSelect
-              v-model:value="filters.period"
-              :options="periodOptions"
-              :loading="periodLoading && !globalLoadingVisible"
-              :disabled="periodLoading || listLoading"
-              style="width: 140px"
-            />
-          </NFormItem>
-          <NFormItem label="收益模式">
-            <NSelect
-              v-model:value="filters.profitMode"
-              :options="profitModeOptions"
-              :consistent-menu-width="false"
-              style="width: 260px"
-            />
-          </NFormItem>
-          <NFormItem label="" class="reload-form-item">
-            <NButton
-              type="primary"
-              color="#409eff"
-              size="small"
-              class="reload-btn"
-              :loading="tableLoading && !globalLoadingVisible"
-              :disabled="periodLoading || listLoading"
-              @click="handleReload"
-            >
-              <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
-              重载
-            </NButton>
-          </NFormItem>
-        </NForm>
       </div>
-
-      <!-- 列表：配置驱动列渲染；无内层滚动，页面全高由浏览器原生滚动 -->
-      <NDataTable
-        :columns="columns"
-        :data="rows"
-        :row-key="rowKey"
-        :loading="tableLoading"
-        :bordered="true"
-        :single-line="true"
-        :pagination="false"
-        :style="{
-          'white-space': 'pre-wrap',
-          '--n-font-size': '14px',
-          '--n-th-padding': '12px',
-          '--n-td-padding': '12px',
-        }"
-        size="small"
-        class="factor-table"
-        @update:sorter="handleSorterChange"
-      />
-      <NEmpty
-        v-if="isMode2 && !mode2StatsLoading && rows.length === 0"
-        description="暂无选股策略"
-        class="empty-block"
-      />
-
-      <!-- 分页 -->
-      <div class="pagination-wrap">
-        <NPagination
-          :page="page"
-          :page-size="pageSize"
-          :item-count="itemCount"
-          :page-sizes="pageSizeOptions"
-          show-size-picker
-          @update:page="handlePageChange"
-          @update:page-size="handlePageSizeChange"
-        />
-      </div>
-
-      <!-- 页脚 -->
-      <footer class="page-footer">
-        <span>{{ config.footer }}</span>
-      </footer>
     </div>
-  </NConfigProvider>
+
+    <!-- 列表：配置驱动列渲染；无内层滚动，页面全高由浏览器原生滚动 -->
+    <UiTable
+      :columns="columns"
+      :data="rows"
+      :row-key="rowKey"
+      :loading="tableLoading"
+      :single-line="true"
+      size="small"
+      class="factor-table"
+      @update:sorter="handleSorterChange"
+    />
+    <UiEmpty
+      v-if="isMode2 && !mode2StatsLoading && rows.length === 0"
+      description="暂无选股策略"
+      class="empty-block"
+    />
+
+    <!-- 分页 -->
+    <div class="pagination-wrap">
+      <UiPagination
+        :page="page"
+        :page-size="pageSize"
+        :item-count="itemCount"
+        :page-sizes="pageSizeOptions"
+        show-size-picker
+        @update:page="handlePageChange"
+        @update:page-size="handlePageSizeChange"
+      />
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="page-footer">
+      <span>{{ config.footer }}</span>
+    </footer>
+  </div>
 </template>
 
 <style scoped>
@@ -887,15 +879,18 @@ function handlePageSizeChange(value: number) {
   padding: 28px 32px;
 }
 
-.header-switch-btn {
+/* 左右切换按钮：text 圆形按钮 40×40，hover 提亮 */
+.page-header .header-switch-btn {
   flex-shrink: 0;
   width: 40px;
   height: 40px;
+  border-radius: 8px;
   color: rgba(255, 255, 255, 0.88);
   background: rgba(255, 255, 255, 0.1);
 }
 
-.header-switch-btn:hover {
+.page-header .header-switch-btn:hover {
+  border-color: transparent;
   color: #fff;
   background: rgba(255, 255, 255, 0.18);
 }
@@ -952,30 +947,36 @@ function handlePageSizeChange(value: number) {
 }
 
 .filter-bar {
-  background: #fff;
+  background: var(--ui-bg-card);
   padding: 16px 20px;
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ui-shadow-card);
 }
 
-.filter-bar :deep(.n-form) {
+/* 过滤条：flex wrap 排布（原内联 form 布局迁移到本地类） */
+.filter-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 20px;
 }
 
-.filter-bar :deep(.n-form-item) {
-  margin-bottom: 0;
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.filter-bar :deep(.n-form-item-feedback-wrapper) {
-  display: none;
+.filter-item__label {
+  flex-shrink: 0;
+  font-size: var(--ui-font-base, 14px);
+  color: var(--ui-text-label, #1f2225);
 }
 
-.selector-button {
+.filter-item .selector-button {
   min-width: 112px;
-  color: #409eff;
+  color: var(--ui-color-primary);
 }
 
 .reload-form-item {
@@ -992,11 +993,42 @@ function handlePageSizeChange(value: number) {
   filter: brightness(0) invert(1);
 }
 
+/* 列表容器：圆角边框 + 阴影；不设 overflow，保证表头可相对视口吸顶 */
 .factor-table {
-  background: #fff;
+  background: var(--ui-bg-card);
+  border: 1px solid var(--ui-border-lighter);
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  padding: 0;
+  box-shadow: var(--ui-shadow-card);
+}
+
+/* 表头吸顶（与 market/明细页一致）：th sticky 相对视口 */
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__th) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--ui-bg-header);
+  white-space: pre-wrap;
+}
+
+/* 表格视觉：还原原页面定制——14px 字号、th/td 12px 内边距 */
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__table) {
+  font-size: var(--ui-font-base);
+}
+
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__th),
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__td) {
+  padding: 12px;
+  font-size: var(--ui-font-base);
+}
+
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__row) {
+  height: auto;
+}
+
+/* 表头文字（含两行标题）随列对齐居中 */
+.factorKanban-layout :deep(.ui-table.factor-table .ui-table__th .ui-table__sort) {
+  justify-content: center;
+  text-align: center;
 }
 
 .pagination-wrap {
@@ -1005,34 +1037,15 @@ function handlePageSizeChange(value: number) {
   padding: 4px 0;
 }
 
-.pagination-wrap :deep(.n-pagination-item--button) {
-  --n-button-color: #fff;
-}
-
 .page-footer {
   display: flex;
   justify-content: center;
   padding: 12px 0;
-  color: #999;
+  color: var(--ui-text-secondary);
   font-size: 13px;
 }
 
-.empty-block {
+.factorKanban-layout .empty-block {
   padding: 8px 0;
 }
-
-/* 表头吸顶（与 market/明细页一致）：解除 naive 滚动容器 overflow，th sticky 相对视口 */
-.factorKanban-layout :deep(.n-data-table-base-table-body.n-scrollbar),
-.factorKanban-layout :deep(.n-scrollbar-container),
-.factorKanban-layout :deep(.n-data-table-wrapper) {
-  overflow: visible;
-}
-
-.factorKanban-layout :deep(.n-data-table-thead .n-data-table-th) {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: rgb(250, 250, 252);
-}
-
 </style>

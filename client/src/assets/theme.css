@@ -1,0 +1,72 @@
+/* 主题 token：跨组件/页面共享的视觉变量（供 <style scoped> 内 var() 引用）。
+   组件专属样式留在各自 SFC scoped 内，不集中。 */
+
+:root {
+  /* 品牌色 */
+  --ui-color-primary: #409eff;
+  --ui-color-primary-hover: #66b1ff;
+  --ui-color-primary-active: #3a8ee6;
+  --ui-color-primary-weak: #ecf5ff;
+
+  /* 语义色 */
+  --ui-color-success: #67c23a;
+  --ui-color-warning: #e6a23c;
+  --ui-color-error: #f56c6c;
+  --ui-color-danger: #d03050;
+
+  /* 涨跌色 */
+  --ui-color-up: #ef4444;
+  --ui-color-up-soft: #f87171;
+  --ui-color-down: #22c55e;
+  --ui-color-down-soft: #4ade80;
+
+  /* 文本 */
+  --ui-text-main: #303133;
+  --ui-text-regular: #606266;
+  --ui-text-secondary: #909399;
+  --ui-text-placeholder: #c0c4cc;
+  --ui-text-disabled: #a8abb2;
+  /* 表单控件/标签(对齐 naive 默认:输入文字 #333234、标签 #1f2225) */
+  --ui-text-control: #333639;
+  --ui-text-label: #1f2225;
+
+  /* 边框 */
+  --ui-border-base: #dcdfe6;
+  --ui-border-light: #e4e7ed;
+  --ui-border-lighter: #ebeef5;
+  --ui-border-extra-light: #f2f3f5;
+
+  /* 背景 */
+  --ui-bg-page: #f0f2f5;
+  --ui-bg-card: #ffffff;
+  --ui-bg-header: #fafafa;
+  --ui-bg-hover: #f5f7fa;
+
+  /* 圆角 */
+  --ui-radius-sm: 4px;
+  --ui-radius-base: 6px;
+  --ui-radius-lg: 8px;
+  --ui-radius-round: 999px;
+
+  /* 阴影 */
+  --ui-shadow-card: 0 1px 3px rgb(0 0 0 / 6%);
+  --ui-shadow-modal: 0 24px 70px rgb(15 23 42 / 24%);
+  --ui-shadow-dropdown: 0 4px 16px rgb(0 0 0 / 12%);
+
+  /* 字号 */
+  --ui-font-xs: 12px;
+  --ui-font-sm: 13px;
+  --ui-font-base: 14px;
+  --ui-font-lg: 18px;
+  --ui-font-xl: 20px;
+  --ui-font-title: 30px;
+
+  /* 间距步进 */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+}

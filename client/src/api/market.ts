@@ -68,9 +68,10 @@ export interface MarketContract {
   }>
 }
 
-/** 统一快照交易日全量行情列表（末交易日）。 */
-export function fetchMarketList(): Promise<MarketSnapshotRow[]> {
-  return request<MarketSnapshotRow[]>('/api/market/list')
+/** 统一快照日全量行情列表;date(YYYY-MM-DD)缺省取末交易日。 */
+export function fetchMarketList(date?: string): Promise<MarketSnapshotRow[]> {
+  const query = date ? `?date=${encodeURIComponent(date)}` : ''
+  return request<MarketSnapshotRow[]>(`/api/market/list${query}`)
 }
 
 /** 单股 K 线（code 为裸代码）。

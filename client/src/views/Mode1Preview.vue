@@ -1,25 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NButton,
-  NConfigProvider,
-  NDatePicker,
-  NForm,
-  NFormItem,
-  NInput,
-  NInputNumber,
-  NRadioButton,
-  NRadioGroup,
-  NSelect,
-  dateZhCN,
-  zhCN,
-} from 'naive-ui'
-
+import UiButton from '@/components/ui/UiButton.vue'
+import UiDatePicker from '@/components/ui/UiDatePicker.vue'
+import UiInput from '@/components/ui/UiInput.vue'
+import UiInputNumber from '@/components/ui/UiInputNumber.vue'
+import UiRadio from '@/components/ui/UiRadio.vue'
+import UiRadioGroup from '@/components/ui/UiRadioGroup.vue'
+import UiSelect from '@/components/ui/UiSelect.vue'
 import PageTitleBar from '@/components/common/PageTitleBar.vue'
 import RefreshIcon from '@/assets/icons/refresh.svg'
-import { fetchIndices, fetchSectors } from '@/api/mode1'
+import { fetchDataRange, fetchIndices, fetchSectors } from '@/api/mode1'
 import DecayChart from '@/components/visualization/DecayChart.vue'
 import FactorMetrics from '@/components/visualization/FactorMetrics.vue'
 import GroupNavChart from '@/components/visualization/GroupNavChart.vue'
@@ -424,6 +416,23 @@ function goDetail(date?: string): void {
     query: date ? { date } : {},
   })
 }
+
+/** 日历可选边界(毫秒,全市场数据区间;加载失败不限界)。 */
+const rangeMinMs = ref<number | undefined>(undefined)
+const rangeMaxMs = ref<number | undefined>(undefined)
+
+onMounted(() => {
+  fetchDataRange()
+    .then((range) => {
+      const min = toDateValue(range.min_date)
+      const max = toDateValue(range.max_date)
+      if (min !== null) rangeMinMs.value = min
+      if (max !== null) rangeMaxMs.value = max
+    })
+    .catch(() => {
+      // 区间获取失败:日历保持不限界,不阻塞页面
+    })
+})
 </script>
 
 <template>
@@ -437,64 +446,66 @@ function goDetail(date?: string): void {
     />
 
     <div v-if="previewFilter" class="filter-bar">
-      <NForm layout="inline" label-placement="left" size="small">
-        <NFormItem label="过滤ST">
-          <NRadioGroup v-model:value="previewFilter.filter_st" size="small">
-            <NRadioButton :value="false">否</NRadioButton>
-            <NRadioButton :value="true">是</NRadioButton>
-          </NRadioGroup>
-        </NFormItem>
-        <NFormItem label="过滤北证">
-          <NRadioGroup v-model:value="previewFilter.filter_bz" size="small">
-            <NRadioButton :value="false">否</NRadioButton>
-            <NRadioButton :value="true">是</NRadioButton>
-          </NRadioGroup>
-        </NFormItem>
-        <NFormItem label="行业板块">
-          <NButton size="small" class="selector-button" @click="selectSectors">
+      <div class="filter-form">
+        <div class="filter-item">
+          <span class="filter-item__label">过滤ST</span>
+          <UiRadioGroup v-model:value="previewFilter.filter_st" size="small">
+            <UiRadio type="button" :value="false">否</UiRadio>
+            <UiRadio type="button" :value="true">是</UiRadio>
+          </UiRadioGroup>
+        </div>
+        <div class="filter-item">
+          <span class="filter-item__label">过滤北证</span>
+          <UiRadioGroup v-model:value="previewFilter.filter_bz" size="small">
+            <UiRadio type="button" :value="false">否</UiRadio>
+            <UiRadio type="button" :value="true">是</UiRadio>
+          </UiRadioGroup>
+        </div>
+        <div class="filter-item">
+          <span class="filter-item__label">行业板块</span>
+          <UiButton size="small" class="selector-button" @click="selectSectors">
             {{
               previewFilter.sector.length ? `已选 ${previewFilter.sector.length} 项` : '全部行业'
             }}
-          </NButton>
-        </NFormItem>
-        <NFormItem label="指数列表">
-          <NButton size="small" class="selector-button" @click="selectIndices">
+          </UiButton>
+        </div>
+        <div class="filter-item">
+          <span class="filter-item__label">指数列表</span>
+          <UiButton size="small" class="selector-button" @click="selectIndices">
             {{
               previewFilter.indice.length ? `已选 ${previewFilter.indice.length} 项` : '全部指数'
             }}
-          </NButton>
-        </NFormItem>
-        <NFormItem v-for="param in coreParams" :key="param.key" :label="param.name">
-          <NInputNumber
+          </UiButton>
+        </div>
+        <div v-for="param in coreParams" :key="param.key" class="filter-item">
+          <span class="filter-item__label">{{ param.name }}</span>
+          <UiInputNumber
             v-if="param.inputType === 'number'"
             :value="param.value as number"
-            :precision="param.integer ? 0 : undefined"
-            :show-button="false"
             size="small"
             class="core-input"
             @update:value="(value) => updateCoreParam(param.key, value)"
           />
-          <NRadioGroup
+          <UiRadioGroup
             v-else-if="param.inputType === 'boolean'"
             :value="param.value as boolean"
             size="small"
             @update:value="(value) => updateCoreParam(param.key, value as boolean)"
           >
-            <NRadioButton :value="false">否</NRadioButton>
-            <NRadioButton :value="true">是</NRadioButton>
-          </NRadioGroup>
-          <NInput
+            <UiRadio type="button" :value="false">否</UiRadio>
+            <UiRadio type="button" :value="true">是</UiRadio>
+          </UiRadioGroup>
+          <UiInput
             v-else
             :value="param.value as string"
             size="small"
             class="core-input"
             @update:value="(value) => updateCoreParam(param.key, value)"
           />
-        </NFormItem>
-        <NFormItem label="" class="reload-form-item">
-          <NButton
+        </div>
+        <div class="filter-item reload-form-item">
+          <UiButton
             type="primary"
-            color="#409eff"
             size="small"
             class="reload-btn"
             :loading="localQuantileLoading"
@@ -502,45 +513,35 @@ function goDetail(date?: string): void {
           >
             <template #icon><img :src="RefreshIcon" alt="" class="reload-icon" /></template>
             重载
-          </NButton>
-        </NFormItem>
-      </NForm>
+          </UiButton>
+        </div>
+      </div>
     </div>
 
     <div class="stats-header">
 
       <div class="stat-item date-range-item">
         <span class="stat-label">数据区间</span>
-        <NConfigProvider :locale="zhCN" :date-locale="dateZhCN">
-          <div class="date-picker-wrap">
-            <NDatePicker
-              v-model:value="startDate"
-              type="date"
-              size="small"
-              :clearable="false"
-              to=".mode1-preview"
-            >
-              <template #now>
-                <NButton size="tiny" class="date-reset-btn" @click.stop.prevent="resetStartDate">
-                  复位
-                </NButton>
-              </template>
-            </NDatePicker>
-            <NDatePicker
-              v-model:value="endDate"
-              type="date"
-              size="small"
-              :clearable="false"
-              to=".mode1-preview"
-            >
-              <template #now>
-                <NButton size="tiny" class="date-reset-btn" @click.stop.prevent="resetEndDate">
-                  复位
-                </NButton>
-              </template>
-            </NDatePicker>
-          </div>
-        </NConfigProvider>
+        <div class="date-picker-wrap">
+          <UiDatePicker
+            v-model:value="startDate"
+            :min="rangeMinMs"
+            :max="rangeMaxMs"
+            size="small"
+            :clearable="false"
+            action-text="复位"
+            @action="resetStartDate"
+          />
+          <UiDatePicker
+            v-model:value="endDate"
+            :min="rangeMinMs"
+            :max="rangeMaxMs"
+            size="small"
+            :clearable="false"
+            action-text="复位"
+            @action="resetEndDate"
+          />
+        </div>
       </div>
       <div v-for="stat in stats" :key="stat.label" class="stat-item">
         <span class="stat-label">{{ stat.label }}</span>
@@ -548,12 +549,12 @@ function goDetail(date?: string): void {
       </div>
       <div class="stat-item profit-mode-item">
         <span class="stat-label">收益模式</span>
-        <NSelect
+        <UiSelect
           v-model:value="profitMode"
           :options="profitModeOptions"
           size="small"
           class="profit-mode-select"
-          :consistent-menu-width="false"
+          :width="300"
         />
       </div>
     </div>
@@ -617,33 +618,47 @@ function goDetail(date?: string): void {
 
 .filter-bar {
   padding: 16px 20px;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-bg-card);
+  box-shadow: var(--ui-shadow-card);
 }
 
-.filter-bar :deep(.n-form) {
+.filter-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 28px;
 }
 
-.filter-bar :deep(.n-form-item) {
-  margin-bottom: 0;
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.filter-bar :deep(.n-form-item-feedback-wrapper) {
-  display: none;
+.filter-item__label {
+  font-size: var(--ui-font-sm);
+  color: var(--ui-text-regular);
+  white-space: nowrap;
 }
 
-.selector-button {
+.filter-bar .selector-button {
   min-width: 112px;
-  color: #409eff;
+  color: var(--ui-color-primary);
 }
 
-.core-input {
-  width: 112px;
+.filter-bar .core-input {
+  width: 80px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.filter-bar .core-input :deep(.ui-input-number__control) {
+  height: 100%;
+}
+
+.filter-bar .core-input :deep(.ui-input-number__steps) {
+  display: none;
 }
 
 .stats-header {
@@ -653,10 +668,10 @@ function goDetail(date?: string): void {
 }
 
 .stat-item {
-  background: #fff;
-  border-radius: 8px;
+  background: var(--ui-bg-card);
+  border-radius: var(--ui-radius-lg);
   padding: 16px 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ui-shadow-card);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -672,25 +687,8 @@ function goDetail(date?: string): void {
   gap: 8px;
 }
 
-.date-picker-wrap :deep(.n-date-picker) {
+.date-picker-wrap .ui-datepicker {
   width: 156px;
-}
-
-.date-picker-wrap :deep(.n-date-panel-actions) {
-  justify-content: center;
-}
-
-.date-picker-wrap :deep(.n-date-panel-actions__prefix) {
-  display: none;
-}
-
-.date-picker-wrap :deep(.n-date-panel-actions__suffix) {
-  align-self: center;
-  margin-bottom: 0;
-}
-
-.date-picker-wrap :deep(.date-reset-btn) {
-  min-width: 56px;
 }
 
 .profit-mode-item {
@@ -703,13 +701,13 @@ function goDetail(date?: string): void {
 
 .stat-label {
   font-size: 14px;
-  color: rgb(31, 34, 37);
+  color: var(--ui-text-main);
 }
 
 .stat-value {
   font-size: 20px;
   font-weight: 700;
-  color: rgb(31, 34, 37);
+  color: var(--ui-text-main);
 }
 
 .chart-row {

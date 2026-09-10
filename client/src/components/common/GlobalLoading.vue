@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NSpin } from 'naive-ui'
 
+import UiSpin from '@/components/ui/UiSpin.vue'
 import { useGlobalLoadingStore } from '@/stores/globalLoading'
 
 const store = useGlobalLoadingStore()
@@ -37,7 +37,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', blockKeyboard, tru
           aria-label="加载中"
           tabindex="-1"
         >
-          <NSpin :size="34" stroke="#3949ab" />
+          <UiSpin :size="34" stroke="#3949ab" />
           <span>加载中</span>
         </section>
       </div>

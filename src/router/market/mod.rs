@@ -14,6 +14,7 @@ use salvo::{Request, Router};
 use salvo_oapi::{ToSchema, endpoint};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use time::{Date, format_description::well_known::Iso8601};
 
 use crate::{DF, reject, rejectf, resolve, resp::{Res, Resp}};
 
@@ -65,9 +66,19 @@ pub async fn market_router() -> Router {
         (status_code = 200, description = "行情快照列表", body = Res<Vec<SnapshotRow>>),
     )
 )]
-/// 统一快照交易日全量行情列表（末交易日 = DF.end）。
-pub async fn market_list() -> Resp<Vec<SnapshotRow>> {
-    let date = DF.end;
+/// 全量行情快照列表。
+///
+/// 快照日取 `date` 参数(需为交易日,否则返回空);缺省为末交易日 `DF.end`。
+/// 当日无行(停牌/滞后/未上市)的合约剔除。
+pub async fn market_list(req: &mut Request) -> Resp<Vec<SnapshotRow>> {
+    let requested: Option<String> = req.query("date");
+    let date = match requested {
+        Some(text) => match Date::parse(&text, &Iso8601::DATE) {
+            Ok(value) => value,
+            Err(_) => return reject!(400, "日期格式应为 YYYY-MM-DD"),
+        },
+        None => DF.end,
+    };
     let mut rows = Vec::with_capacity(DF.list.len());
     for contract in &DF.list {
         let Some(&position) = contract.table.get(&date) else { continue };

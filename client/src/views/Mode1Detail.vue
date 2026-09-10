@@ -1,21 +1,16 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NButton,
-  NCard,
-  NDataTable,
-  NDatePicker,
-  NRadio,
-  NRadioGroup,
-  NSpin,
-  NTabPane,
-  NTabs,
-  type DataTableColumns,
-} from 'naive-ui'
 
 import PageTitleBar from '@/components/common/PageTitleBar.vue'
-import { fetchMode1Detail } from '@/api/mode1'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCard from '@/components/ui/UiCard.vue'
+import UiDatePicker from '@/components/ui/UiDatePicker.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiSpin from '@/components/ui/UiSpin.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
+import UiTabs from '@/components/ui/UiTabs.vue'
+import { fetchDataRange, fetchMode1Detail } from '@/api/mode1'
 import { loadPreviewParams, useMode1Store } from '@/stores/mode1'
 import { useMode1PreviewStore } from '@/stores/mode1Preview'
 import type { Mode1DetailRow, Mode1QuantileDay, ModeRequest } from '@/types/mode1'
@@ -51,15 +46,23 @@ const modeId = computed(() => {
 
 const request = ref<ModeRequest>()
 const day = ref<number | null>(null)
+/** 日历可选边界(毫秒,全市场数据区间;失败不限界) */
+const rangeMinMs = ref<number | undefined>(undefined)
+const rangeMaxMs = ref<number | undefined>(undefined)
 const quantileCount = ref<3 | 5 | 10>(5)
 const detail = ref<Mode1QuantileDay>()
 const loading = ref(false)
 const error = ref('')
 
 /** 分位切换后按当前日期重新查询。 */
-function changeQuantileCount(value: number): void {
+function changeQuantileCount(value: number | string | boolean): void {
   quantileCount.value = value as 3 | 5 | 10
   void load()
+}
+
+/** 分位页签切换：仅改变当前展示的分位表格，不重新查询。 */
+function setActiveQuantile(value: string | number): void {
+  activeQuantile.value = Number(value)
 }
 
 const factorName = computed(() => {
@@ -130,9 +133,20 @@ const totalRows = computed(() =>
   detail.value ? detail.value.quantiles.reduce((sum, group) => sum + group.length, 0) : 0,
 )
 
+/** 当前展示的分位下标（对应 detail.quantiles；切换只改展示，不重新查询）。 */
+const activeQuantile = ref(0)
+
+/** 分位 Tabs 数据源：name=分位下标，下方仅渲染活动分位的一份表格。 */
+const quantileTabs = computed(() =>
+  (detail.value?.quantiles ?? []).map((group, index) => ({
+    name: index,
+    label: `分位 ${index + 1}${group.length ? `（${group.length} 只）` : '（空）'}`,
+  })),
+)
+
 /**
  * 分位表格行缓存：仅在 detail 更新时重建，展开/收起等交互不再触发 ~1000 行的重建，
- * naive-ui 收到的 :data 引用保持稳定，只 patch 被点击的那一行。
+ * UiTable 收到的 :data 引用保持稳定，只 patch 被点击的那一行。
  */
 const quantileData = ref<TableRow[][]>([])
 
@@ -140,20 +154,16 @@ function rebuildQuantiles(): void {
   quantileData.value = (detail.value?.quantiles ?? []).map((group) => quantileRows(group))
 }
 
-/** 列定义与分位无关且不依赖响应式状态：模块级构建一次，避免每次渲染新建列数组触发整表更新。 */
-/**
- * 全列显式宽度 + table-layout:fixed（见样式）——列宽由声明决定，
- * 展开行内容不再参与 auto 布局的列宽分配，避免展开/收起时列宽跳动。
- */
-const tableColumns: DataTableColumns<TableRow> = [
-  { title: '#', key: 'rank', width: 56, render: (row, index) => (row.isAvg ? '' : String(index + 1)) },
-  { title: '代码', key: 'code', width: 100 },
-  { title: '名称', key: 'name', width: 160 },
-  { title: '收盘价', key: 'close', align: 'right', width: 150, render: (row) => (row.close === null ? '--' : row.close.toFixed(2)) },
-  { title: '涨跌幅', key: 'changePercent', align: 'right', width: 110, render: (row) => renderPercent(row.changePercent) },
-  { title: '换手率', key: 'turnover', align: 'right', width: 110, render: (row) => renderTurnover(row.turnover) },
-  { title: '因子值', key: 'factor', align: 'right', width: 170, render: (row) => renderFactor(row.factor) },
-  { type: 'expand', width: 48, renderExpand },
+/** 列定义:首列(序号)与末列(展开)固定宽,中间列按 1fr 等分(本地 UiTable grid 布局)。 */
+const tableColumns: UiTableColumn<TableRow>[] = [
+  { title: '序号', key: 'rank', width: 70, render: (row, index) => (row.isAvg ? '' : String(index + 1)) },
+  { title: '代码', key: 'code' },
+  { title: '名称', key: 'name' },
+  { title: '收盘价', key: 'close', render: (row) => (row.close === null ? '--' : row.close.toFixed(2)) },
+  { title: '涨跌幅', key: 'changePercent', render: (row) => renderPercent(row.changePercent) },
+  { title: '换手率', key: 'turnover', render: (row) => renderTurnover(row.turnover) },
+  { title: '因子值', key: 'factor', render: (row) => renderFactor(row.factor) },
+  { title: '#', type: 'expand', width: 40, renderExpand },
 ]
 
 /** 金额格式化：亿/万（单位：元）。 */
@@ -174,7 +184,7 @@ function formatShares(value: number | null | undefined): string {
 /** 展开内容：完整行情 + 财务。 */
 function renderExpand(row: TableRow) {
   const source = row.raw
-  if (!source) return null
+  if (!source) return ''
   const pct = (value: number | null | undefined) =>
     value === null || value === undefined || !Number.isFinite(value) ? '--' : `${value.toFixed(2)}%`
   // 行情 / 财务各字段组独立成行显示（块级换行，避免挤成一长行）
@@ -186,16 +196,30 @@ function renderExpand(row: TableRow) {
   ])
 }
 
-const rowProps = (row: TableRow) => ({
-  style: row.isAvg ? { background: '#fafafa', fontWeight: 600, color: '#606266' } : { cursor: 'pointer' },
-  onClick: () => {
-    if (row.isAvg) return
-    const key = row.key
-    expandedKeys.value = expandedKeys.value.includes(key)
-      ? expandedKeys.value.filter((item) => item !== key)
-      : [...expandedKeys.value, key]
-  },
-})
+/** UiTable row-key 取值。 */
+function rowKeyOf(row: unknown): string {
+  return (row as TableRow).key
+}
+
+const rowProps = (row: unknown): { style: Record<string, string>; onClick: () => void } => {
+  const item = row as TableRow
+  return {
+    style: item.isAvg
+      ? {
+          background: 'var(--ui-bg-header, #fafafa)',
+          fontWeight: '600',
+          color: 'var(--ui-text-regular, #606266)',
+        }
+      : { cursor: 'pointer' },
+    onClick: () => {
+      if (item.isAvg) return
+      const key = item.key
+      expandedKeys.value = expandedKeys.value.includes(key)
+        ? expandedKeys.value.filter((expanded) => expanded !== key)
+        : [...expandedKeys.value, key]
+    },
+  }
+}
 
 async function load(): Promise<void> {
   if (!request.value) return
@@ -210,6 +234,7 @@ async function load(): Promise<void> {
     detail.value = await fetchMode1Detail(params)
     rebuildQuantiles()
     expandedKeys.value = []
+    activeQuantile.value = 0
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
     detail.value = undefined
@@ -219,6 +244,15 @@ async function load(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 日历边界(独立于因子加载,失败不限界)
+  fetchDataRange()
+    .then((range) => {
+      const minMs = new Date(`${range.min_date}T00:00:00`).getTime()
+      const maxMs = new Date(`${range.max_date}T00:00:00`).getTime()
+      if (Number.isFinite(minMs)) rangeMinMs.value = minMs
+      if (Number.isFinite(maxMs)) rangeMaxMs.value = maxMs
+    })
+    .catch(() => undefined)
   // 解析因子请求参数：优先用预览保存的参数，其次用当前选中因子条目。
   const cached = loadPreviewParams(modeId.value)
   const current = mode1Store.curr
@@ -242,54 +276,61 @@ onMounted(async () => {
   <div class="detail-layout">
     <PageTitleBar :title="`${factorName || '因子'}·明细`" :show-detail="false" @back="backToPreview" />
     <div class="toolbar">
-      <NRadioGroup
-        :value="quantileCount"
-        size="small"
-        :disabled="loading"
-        @update:value="changeQuantileCount"
-      >
-        <NRadio :value="3">三分位</NRadio>
-        <NRadio :value="5">五分位</NRadio>
-        <NRadio :value="10">十分位</NRadio>
-      </NRadioGroup>
-      <NDatePicker
+      <div class="seg-group">
+        <UiButton
+          v-for="count in [3, 5, 10]"
+          :key="count"
+          size="small"
+          class="q-seg"
+          :class="{ 'is-active': quantileCount === count }"
+          :disabled="loading"
+          @click="changeQuantileCount(count)"
+        >
+          {{ count === 3 ? '三' : count === 5 ? '五' : '十' }}分位
+        </UiButton>
+      </div>
+      <UiDatePicker
         v-model:value="day"
-        type="date"
+        :min="rangeMinMs"
+        :max="rangeMaxMs"
         clearable
         format="yyyy-MM-dd"
         style="width: 180px"
         :disabled="loading"
       />
-      <NButton type="primary" size="small" :loading="loading" @click="load">查询</NButton>
+      <UiButton type="primary" size="small" :loading="loading" @click="load">查询</UiButton>
       <span class="count-tip">共 {{ totalRows }} 只 · {{ detail?.count ?? quantileCount }} 分位</span>
     </div>
 
-    <NCard v-if="loading" size="small"><NSpin>加载中...</NSpin></NCard>
-    <NCard v-else-if="error" size="small">
+    <!-- 首次无数据时用卡片加载;已有数据(切换分位/日期/查询)改由表格自身 loading 呈现 -->
+    <UiCard v-if="!detail && loading" size="small"><UiSpin :show="true">加载中...</UiSpin></UiCard>
+    <UiCard v-else-if="!detail && error" size="small">
       <div class="error-tip">{{ error }}</div>
-    </NCard>
-    <template v-else-if="detail">
+    </UiCard>
+    <template v-if="detail">
       <div v-if="detail.quantiles.every((group) => group.length === 0)" class="empty-block">
-        <NEmpty description="该日期无数据（非交易日或超出数据范围）" />
+        <UiEmpty description="该日期无数据（非交易日或超出数据范围）" />
       </div>
-      <NTabs v-else type="segment">
-        <NTabPane
-          v-for="(group, index) in detail.quantiles"
-          :key="index"
-          :name="index"
-          :tab="`分位 ${index + 1}${group.length ? `（${group.length} 只）` : '（空）'}`"
-        >
-          <NDataTable
-            v-model:expanded-row-keys="expandedKeys"
-            size="small"
-            :columns="tableColumns"
-            :data="quantileData[index] ?? []"
-            :row-key="(row: TableRow) => row.key"
-            :row-props="rowProps"
-            :bordered="false"
+      <template v-else>
+        <div class="tabs-bar">
+          <UiTabs
+            type="segment"
+            :tabs="quantileTabs"
+            :value="activeQuantile"
+            @update:value="setActiveQuantile"
           />
-        </NTabPane>
-      </NTabs>
+        </div>
+        <UiTable
+          v-model:expanded-row-keys="expandedKeys"
+          size="small"
+          :columns="tableColumns"
+          :data="quantileData[activeQuantile] ?? []"
+          :row-key="rowKeyOf"
+          :row-props="rowProps"
+          :loading="loading"
+          :bordered="false"
+        />
+      </template>
     </template>
   </div>
 </template>
@@ -308,44 +349,68 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
+  background: var(--ui-bg-card, #fff);
+  padding: 14px 24px;
+  border-radius: 8px;
+  box-shadow: var(--ui-shadow-card, 0 1px 3px rgb(0 0 0 / 6%));
 }
 
+.seg-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 
-/* 路径 A：解除 naive 滚动容器与 NTabs 内容层包装，让 sticky 相对视口生效 */
-.detail-layout :deep(.n-data-table-base-table-body.n-scrollbar),
-.detail-layout :deep(.n-scrollbar-container),
-.detail-layout :deep(.n-tabs-pane-wrapper) {
-  overflow: visible;
+.q-seg.is-active {
+  border-color: var(--ui-color-primary, #409eff);
+  color: var(--ui-color-primary, #409eff);
+  background: var(--ui-color-primary-weak, #ecf5ff);
+}
+
+.tabs-bar {
+  display: flex;
+  background: var(--ui-bg-card, #fff);
+  padding: 8px 24px;
+  border-radius: 8px;
+  box-shadow: var(--ui-shadow-card, 0 1px 3px rgb(0 0 0 / 6%));
+}
+
+/* 分位页签:grid 等分 + 明显间隔(独立胶囊观感) */
+.tabs-bar :deep(.ui-tabs) {
+  display: grid;
+  width: 100%;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  column-gap: 8px;
+}
+
+.tabs-bar :deep(.ui-tabs__item) {
+  justify-content: center;
+  margin: 0 !important;
+  border-radius: 4px !important;
 }
 
 /* 表格表头滚动吸顶 */
-.detail-layout :deep(.n-data-table-thead .n-data-table-th) {
+.detail-layout :deep(.ui-table__th) {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: rgb(250, 250, 252);
-}
-
-/* 固定表格布局：列宽由声明决定，展开行不再影响各列宽度（naive 内联 auto 需 !important 覆盖） */
-.detail-layout :deep(.n-data-table-table) {
-  table-layout: fixed !important;
-  width: 100%;
+  background: var(--ui-bg-header, #fafafa);
 }
 
 .count-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-secondary, #909399);
 }
 
 .error-tip {
-  color: #d03050;
+  color: var(--ui-color-danger, #d03050);
   padding: 8px 0;
 }
 
-
 .expand-row {
   font-size: 13px;
-  color: #606266;
+  color: var(--ui-text-regular, #606266);
   line-height: 1.8;
   padding: 4px 8px;
 }

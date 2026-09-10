@@ -2,8 +2,9 @@
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { NCard, NEmpty, NSpin } from 'naive-ui'
-
+import UiCard from '@/components/ui/UiCard.vue'
+import UiEmpty from '@/components/ui/UiEmpty.vue'
+import UiSpin from '@/components/ui/UiSpin.vue'
 import PageTitleBar from '@/components/common/PageTitleBar.vue'
 import PortfolioNavChart from '@/components/visualization/PortfolioNavChart.vue'
 import TurnoverBarChart from '@/components/visualization/TurnoverBarChart.vue'
@@ -83,11 +84,11 @@ watch(
       </div>
     </div>
 
-    <NSpin :show="historyLoading">
+    <UiSpin :show="historyLoading">
       <div v-if="historyError" class="error-tip">{{ historyError }}</div>
       <template v-else-if="history">
         <div class="chart-grid">
-          <NCard title="组合 / 基准净值" size="small" class="chart-card">
+          <UiCard title="组合 / 基准净值" size="small" class="chart-card">
             <PortfolioNavChart
               :dates="history.datetime"
               :portfolio="history.portfolio"
@@ -95,18 +96,18 @@ watch(
               @select-date="goDetail"
             />
             <div class="chart-tip">点击曲线上的日期可进入该日名单明细；区间尾部 1-2 个交易日无未来收益数据。</div>
-          </NCard>
-          <NCard title="调仓换手率 / 入选数" size="small" class="chart-card">
+          </UiCard>
+          <UiCard title="调仓换手率 / 入选数" size="small" class="chart-card">
             <TurnoverBarChart
               :dates="history.datetime"
               :turnover="history.turnover"
               :count="history.count"
             />
-          </NCard>
+          </UiCard>
         </div>
       </template>
-      <NEmpty v-else description="暂无回测数据" class="empty-block" />
-    </NSpin>
+      <UiEmpty v-else description="暂无回测数据" class="empty-block" />
+    </UiSpin>
   </div>
 </template>
 
@@ -128,7 +129,7 @@ watch(
 }
 
 .stat-item {
-  background: #fff;
+  background: var(--ui-bg-card, #fff);
   border-radius: 8px;
   padding: 16px 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -161,12 +162,12 @@ watch(
 .chart-tip {
   margin-top: 4px;
   font-size: 12px;
-  color: #909399;
+  color: var(--ui-text-secondary, #909399);
 }
 
 .error-tip {
   padding: 12px;
-  color: #d03050;
+  color: var(--ui-color-danger, #d03050);
   font-size: 13px;
 }
 
